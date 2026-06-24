@@ -30,6 +30,7 @@ import ClockViewModel from "../ClockViewModel.js";
 import FullscreenButton from "../FullscreenButton/FullscreenButton.js";
 import Geocoder from "../Geocoder/Geocoder.js";
 import HomeButton from "../HomeButton/HomeButton.js";
+import RotateButton from "../RotateButton/RotateButton.js"
 import InfoBox from "../InfoBox/InfoBox.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
@@ -220,6 +221,7 @@ function createNoFeaturesEntity() {
 function enableVRUI(viewer, enabled) {
   const geocoder = viewer._geocoder;
   const homeButton = viewer._homeButton;
+  const rotateButton = viewer._rotateButton;
   const sceneModePicker = viewer._sceneModePicker;
   const projectionPicker = viewer._projectionPicker;
   const baseLayerPicker = viewer._baseLayerPicker;
@@ -236,6 +238,9 @@ function enableVRUI(viewer, enabled) {
   }
   if (defined(homeButton)) {
     homeButton.container.style.visibility = visibility;
+  }
+  if (defined(rotateButton)) {
+    rotateButton.container.style.visibility = visibility;
   }
   if (defined(sceneModePicker)) {
     sceneModePicker.container.style.visibility = visibility;
@@ -287,6 +292,7 @@ function enableVRUI(viewer, enabled) {
  * @property {boolean} [vrButton=false] If set to true, the VRButton widget will be created.
  * @property {boolean|IonGeocodeProviderType|GeocoderService[]} [geocoder=IonGeocodeProviderType.DEFAULT] The geocoding service or services to use when searching with the Geocoder widget. If set to false, the Geocoder widget will not be created.
  * @property {boolean} [homeButton=true] If set to false, the HomeButton widget will not be created.
+ * @property {boolean} [rotateButton=true] If set to false, the RotateButton widget will not be created.
  * @property {boolean} [infoBox=true] If set to false, the InfoBox widget will not be created.
  * @property {boolean} [sceneModePicker=true] If set to false, the SceneModePicker widget will not be created.
  * @property {boolean} [selectionIndicator=true] If set to false, the SelectionIndicator widget will not be created.
@@ -351,6 +357,7 @@ function enableVRUI(viewer, enabled) {
  * @see CesiumWidget
  * @see FullscreenButton
  * @see HomeButton
+ * @see RotateButton
  * @see SceneModePicker
  * @see Timeline
  * @see viewerDragDropMixin
@@ -518,6 +525,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   });
 
   const scene = cesiumWidget.scene;
+  // const clock = cesiumWidget.clock;
 
   const eventHelper = new EventHelper();
 
@@ -616,6 +624,27 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     // Subscribe to the home button beforeExecute event so that we can clear the trackedEntity.
     eventHelper.add(
       homeButton.viewModel.command.beforeExecute,
+      Viewer.prototype._clearTrackedObject,
+      this,
+    );
+  }
+
+  // RotateButton
+  let rotateButton;
+  if (!defined(options.rotateButton) || options.rotateButton !== false) {
+    rotateButton = new RotateButton(toolbar, scene, clock);
+    if (defined(geocoder)) {
+      eventHelper.add(rotateButton.viewModel.command.afterExecute, function () {
+        const viewModel = geocoder.viewModel;
+        viewModel.searchText = "";
+        if (viewModel.isSearchInProgress) {
+          viewModel.search();
+        }
+      });
+    }
+    // Subscribe to the rotate button beforeExecute event so that we can clear the trackedEntity.
+    eventHelper.add(
+      rotateButton.viewModel.command.beforeExecute,
       Viewer.prototype._clearTrackedObject,
       this,
     );
@@ -843,6 +872,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._destroyClockViewModel = destroyClockViewModel;
   this._toolbar = toolbar;
   this._homeButton = homeButton;
+  this._rotateButton = rotateButton;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1028,6 +1058,18 @@ Object.defineProperties(Viewer.prototype, {
   homeButton: {
     get: function () {
       return this._homeButton;
+    },
+  },
+
+    /**
+   * Gets the RotateButton.
+   * @memberof Viewer.prototype
+   * @type {RotateButton}
+   * @readonly
+   */
+  rotateButton: {
+    get: function () {
+      return this._rotateButton;
     },
   },
 
@@ -1700,6 +1742,9 @@ Viewer.prototype.destroy = function () {
 
   if (defined(this._homeButton)) {
     this._homeButton = this._homeButton.destroy();
+  }
+  if (defined(this._rotateButton)) {
+    this._rotateButton = this._rotateButton.destroy();
   }
 
   if (defined(this._sceneModePicker)) {
