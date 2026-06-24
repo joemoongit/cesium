@@ -24,18 +24,20 @@ function RotateButtonViewModel(scene, clock, duration) {
   const that = this;
   this._command = createCommand(function () {
     if (!that._rotating){
-      that._scene.screenSpaceCameraController.enableInputs = false;
+      let lastTime = performance.now();
       that._rotating = that._clock.onTick.addEventListener(() => {
+        const now = performance.now();
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
         that._scene.camera.rotate(
           Cartesian3.UNIT_Z,
-          CesiumMath.toRadians(0.1),
+          CesiumMath.toRadians((360 / 86164.091) * dt),
         );
       });
       ;
     } else {
       that._rotating();
       that._rotating = null;
-      that._scene.screenSpaceCameraController.enableInputs = true;
     }
   });
 
