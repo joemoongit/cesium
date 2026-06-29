@@ -1,4 +1,11 @@
-import { defined, DeveloperError, Cartesian3, Math as CesiumMath } from "@cesium/engine";
+import {
+  defined,
+  DeveloperError,
+  Cartesian3,
+  Matrix3,
+  Transforms,
+  Math as CesiumMath,
+} from "@cesium/engine";
 import knockout from "../ThirdParty/knockout.js";
 import createCommand from "../createCommand.js";
 
@@ -22,19 +29,53 @@ function RotateButtonViewModel(scene, clock, duration) {
   this._duration = duration;
 
   const that = this;
+  this._accumulatedAngle = 0;
+  this._transformsPatched = false;
+  this._origIcrfToFixed = null;
+  this._origTemeToFixed = null;
+
+  const scratchCounterRotation = new Matrix3();
+
+  this._patchTransforms = function () {
+    if (that._transformsPatched) {
+      return;
+    }
+    that._transformsPatched = true;
+    that._origIcrfToFixed = Transforms.computeIcrfToFixedMatrix;
+    that._origTemeToFixed = Transforms.computeTemeToPseudoFixedMatrix;
+
+    Transforms.computeIcrfToFixedMatrix = function (date, result) {
+      result = that._origIcrfToFixed(date, result);
+      if (defined(result) && that._accumulatedAngle !== 0) {
+        Matrix3.fromRotationZ(-that._accumulatedAngle, scratchCounterRotation);
+        Matrix3.multiply(scratchCounterRotation, result, result);
+      }
+      return result;
+    };
+
+    Transforms.computeTemeToPseudoFixedMatrix = function (date, result) {
+      result = that._origTemeToFixed(date, result);
+      if (that._accumulatedAngle !== 0) {
+        Matrix3.fromRotationZ(-that._accumulatedAngle, scratchCounterRotation);
+        Matrix3.multiply(scratchCounterRotation, result, result);
+      }
+      return result;
+    };
+  };
+
   this._command = createCommand(function () {
-    if (!that._rotating){
+    if (!that._rotating) {
       let lastTime = performance.now();
+      that._patchTransforms();
+
       that._rotating = that._clock.onTick.addEventListener(() => {
         const now = performance.now();
         const dt = (now - lastTime) / 1000;
         lastTime = now;
-        that._scene.camera.rotate(
-          Cartesian3.UNIT_Z,
-          CesiumMath.toRadians((360 / 86164.091) * dt),
-        );
+        const angle = CesiumMath.toRadians((360 / 86164.091) * dt);
+        that._accumulatedAngle += angle;
+        that._scene.camera.rotate(Cartesian3.UNIT_Z, angle);
       });
-      ;
     } else {
       that._rotating();
       that._rotating = null;

@@ -3,6 +3,7 @@ import {
   destroyObject,
   DeveloperError,
   getElement,
+  Transforms,
 } from "@cesium/engine";
 import knockout from "../ThirdParty/knockout.js";
 import RotateButtonViewModel from "./RotateButtonViewModel.js";
@@ -89,6 +90,17 @@ RotateButton.prototype.isDestroyed = function () {
  * removing the widget from layout.
  */
 RotateButton.prototype.destroy = function () {
+  const viewModel = this._viewModel;
+  if (viewModel._rotating) {
+    viewModel._rotating();
+    viewModel._rotating = null;
+  }
+  if (viewModel._transformsPatched) {
+    Transforms.computeIcrfToFixedMatrix = viewModel._origIcrfToFixed;
+    Transforms.computeTemeToPseudoFixedMatrix = viewModel._origTemeToFixed;
+    viewModel._transformsPatched = false;
+  }
+
   knockout.cleanNode(this._element);
   this._container.removeChild(this._element);
 
