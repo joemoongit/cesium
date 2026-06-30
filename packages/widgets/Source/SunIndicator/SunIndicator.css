@@ -1,0 +1,128 @@
+.cesium-sunIndicator-wrapper {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+
+.cesium-sunIndicator-panel {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  width: 210px;
+  background: rgba(38, 38, 38, 0.9);
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  color: #edffff;
+  font-size: 13px;
+  font-family: sans-serif;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.01);
+  transform-origin: right top;
+  transition:
+    visibility 0s 0.2s,
+    opacity 0.2s ease-in,
+    transform 0.2s ease-in;
+  z-index: 1;
+}
+
+.cesium-sunIndicator-panel-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+.cesium-sunIndicator-header {
+  background: rgba(100, 80, 40, 0.8);
+  padding: 6px 12px;
+  font-weight: bold;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cesium-sunIndicator-viz {
+  display: flex;
+  justify-content: center;
+  padding: 8px 10px 4px 10px;
+}
+
+.cesium-sunIndicator-horizon {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.cesium-sunIndicator-info {
+  padding: 4px 12px 10px 12px;
+}
+
+.cesium-sunIndicator-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #bcd;
+}
+
+.cesium-sunIndicator-dir {
+  color: #ffd040;
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.cesium-sunIndicator-separator {
+  border-top: 1px solid #444;
+  margin: 6px 0;
+}
+
+.cesium-sunIndicator-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #446;
+  flex-shrink: 0;
+}
+
+.cesium-sunIndicator-dot-day {
+  background: #ffd040;
+}
+
+.cesium-sunIndicator-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.cesium-sunIndicator-action-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cesium-sunIndicator-action-btn-active {
+  background: #48b;
+  color: #fff;
+}
+
+.cesium-sunIndicator-label {
+  position: absolute;
+  color: #ffd040;
+  font-family: sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+}
