@@ -4,6 +4,8 @@ import {
   BoundingSphere,
   Cartesian2,
   Cartesian3,
+  JulianDate,
+  Matrix4,
   Simon1994PlanetaryPositions,
   Transforms,
   Matrix3,
@@ -21,6 +23,8 @@ const scratchNorth = new Cartesian3();
 const scratchHorizontal = new Cartesian3();
 const scratchIcrfToFixed = new Matrix3();
 const scratchScreenPos = new Cartesian2();
+const scratchTrackSunPos = new Cartesian3();
+const scratchTrackSunFixed = new Cartesian3();
 
 const SOLAR_RADIUS = 6.955e8;
 const AU_METERS = 149597870700;
@@ -68,6 +72,7 @@ function SunIndicatorViewModel(scene, clock, labelOverlay) {
   this.distanceKm = "---";
   this.panelVisible = false;
   this.labelVisible = false;
+  this.orbitActive = false;
 
   knockout.track(this, [
     "sunElevation",
@@ -78,6 +83,7 @@ function SunIndicatorViewModel(scene, clock, labelOverlay) {
     "distanceKm",
     "panelVisible",
     "labelVisible",
+    "orbitActive",
   ]);
 
   const that = this;
@@ -107,13 +113,49 @@ function SunIndicatorViewModel(scene, clock, labelOverlay) {
     }
   });
 
+  this._origComputeSun =
+    Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame;
+  this._orbitStartRealTime = 0;
+  this._orbitAccumulatedSeconds = 0;
+
+  const orbitScratchDate = new JulianDate();
+  const ORBIT_SPEED = 10000;
+  const origSun = this._origComputeSun;
+
+  Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame =
+    function (julianDate, result) {
+      if (!defined(julianDate)) {
+        julianDate = JulianDate.now();
+      }
+      const totalOffset =
+        that._orbitAccumulatedSeconds +
+        (that.orbitActive
+          ? ((performance.now() - that._orbitStartRealTime) / 1000) *
+            ORBIT_SPEED
+          : 0);
+      if (totalOffset === 0) {
+        return origSun(julianDate, result);
+      }
+      JulianDate.addSeconds(julianDate, totalOffset, orbitScratchDate);
+      return origSun(orbitScratchDate, result);
+    };
+
+  this._toggleOrbitCommand = createCommand(function () {
+    if (that.orbitActive) {
+      const elapsed = (performance.now() - that._orbitStartRealTime) / 1000;
+      that._orbitAccumulatedSeconds += elapsed * ORBIT_SPEED;
+      that.orbitActive = false;
+    } else {
+      that._orbitStartRealTime = performance.now();
+      that.orbitActive = true;
+    }
+  });
+
   this.tooltip = "Sun Info";
 }
 
-SunIndicatorViewModel.prototype._flyToSun = function () {
-  const scene = this._scene;
+SunIndicatorViewModel.prototype._getSunFixedPosition = function (result) {
   const date = this._clock.currentTime;
-
   let icrfToFixed = Transforms.computeIcrfToFixedMatrix(
     date,
     scratchIcrfToFixed,
@@ -125,30 +167,60 @@ SunIndicatorViewModel.prototype._flyToSun = function () {
     );
   }
   if (!defined(icrfToFixed)) {
-    return;
+    return undefined;
   }
-
   const sunECI =
     Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(
       date,
-      scratchSunPos,
+      scratchTrackSunPos,
     );
-  const sunFixed = Matrix3.multiplyByVector(
-    icrfToFixed,
-    sunECI,
-    scratchSunFixed,
-  );
+  return Matrix3.multiplyByVector(icrfToFixed, sunECI, result);
+};
 
+SunIndicatorViewModel.prototype._flyToSun = function () {
+  const sunFixed = this._getSunFixedPosition(scratchSunFixed);
+  if (!defined(sunFixed)) {
+    return;
+  }
+
+  const that = this;
   const boundingSphere = new BoundingSphere(sunFixed, SOLAR_RADIUS);
 
-  scene.camera.flyToBoundingSphere(boundingSphere, {
+  this._scene.camera.flyToBoundingSphere(boundingSphere, {
     offset: {
       heading: 0,
       pitch: 0,
       range: SOLAR_RADIUS * 6,
     },
     duration: 3,
+    complete: function () {
+      that._startTrackingSun();
+    },
   });
+};
+
+SunIndicatorViewModel.prototype._startTrackingSun = function () {
+  this._stopTrackingSun();
+  const that = this;
+  const scene = this._scene;
+  const trackTransform = new Matrix4();
+
+  this._sunTrackingListener = scene.postUpdate.addEventListener(function () {
+    const sunNow = that._getSunFixedPosition(scratchTrackSunFixed);
+    if (!defined(sunNow)) {
+      return;
+    }
+    Matrix4.fromTranslation(sunNow, trackTransform);
+    scene.camera.lookAtTransform(trackTransform);
+  });
+};
+
+SunIndicatorViewModel.prototype._stopTrackingSun = function () {
+  if (this._sunTrackingListener) {
+    this._sunTrackingListener();
+    this._sunTrackingListener = null;
+    this._scene.camera.lookAtTransform(Matrix4.IDENTITY);
+  }
 };
 
 SunIndicatorViewModel.prototype._startUpdating = function () {
@@ -291,6 +363,11 @@ Object.defineProperties(SunIndicatorViewModel.prototype, {
   toggleLabelCommand: {
     get: function () {
       return this._toggleLabelCommand;
+    },
+  },
+  toggleOrbitCommand: {
+    get: function () {
+      return this._toggleOrbitCommand;
     },
   },
 });

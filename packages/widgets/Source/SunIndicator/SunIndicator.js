@@ -113,6 +113,10 @@ cesiumSvgPath: { path: _svgPath, width: 100, height: 100 }",
           data-bind="click: toggleLabelCommand, css: { 'cesium-sunIndicator-action-btn-active': labelVisible }">
           Label
         </button>
+        <button type="button" class="cesium-button cesium-sunIndicator-action-btn"
+          data-bind="click: toggleOrbitCommand, css: { 'cesium-sunIndicator-action-btn-active': orbitActive }">
+          10000x
+        </button>
       </div>
     </div>
   `;
@@ -169,6 +173,7 @@ SunIndicator.prototype.destroy = function () {
     document.removeEventListener("mousedown", this._closePanel, true);
     document.removeEventListener("touchstart", this._closePanel, true);
   }
+  this._viewModel._stopTrackingSun();
   this._viewModel._stopUpdating();
   knockout.cleanNode(this._wrapper);
   this._container.removeChild(this._wrapper);
