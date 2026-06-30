@@ -103,6 +103,10 @@ function MoonPhaseIndicator(container, scene, clock) {
           data-bind="click: toggleLabelCommand, css: { 'cesium-moonPhase-action-btn-active': labelVisible }">
           Label
         </button>
+        <button type="button" class="cesium-button cesium-moonPhase-action-btn"
+          data-bind="click: toggleOrbitCommand, css: { 'cesium-moonPhase-action-btn-active': orbitActive }">
+          10000x
+        </button>
       </div>
     </div>
   `;
@@ -159,6 +163,7 @@ MoonPhaseIndicator.prototype.destroy = function () {
     document.removeEventListener("mousedown", this._closePanel, true);
     document.removeEventListener("touchstart", this._closePanel, true);
   }
+  this._viewModel._stopTrackingMoon();
   this._viewModel._stopUpdating();
   knockout.cleanNode(this._wrapper);
   this._container.removeChild(this._wrapper);

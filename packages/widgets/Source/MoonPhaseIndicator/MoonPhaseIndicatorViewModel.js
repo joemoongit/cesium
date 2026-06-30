@@ -4,6 +4,8 @@ import {
   BoundingSphere,
   Cartesian2,
   Cartesian3,
+  JulianDate,
+  Matrix4,
   Simon1994PlanetaryPositions,
   Transforms,
   Matrix3,
@@ -99,6 +101,7 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
   this.shadowPath = computeMoonShadowPath(0, true);
   this.panelVisible = false;
   this.labelVisible = false;
+  this.orbitActive = false;
 
   knockout.track(this, [
     "phaseName",
@@ -109,6 +112,7 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
     "shadowPath",
     "panelVisible",
     "labelVisible",
+    "orbitActive",
   ]);
 
   const that = this;
@@ -138,13 +142,51 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
     }
   });
 
+  this._origComputeMoon =
+    Simon1994PlanetaryPositions.computeMoonPositionInEarthInertialFrame;
+  this._orbitStartRealTime = 0;
+  this._orbitAccumulatedSeconds = 0;
+
+  const orbitScratchDate = new JulianDate();
+  const ORBIT_SPEED = 10000;
+  const orig = this._origComputeMoon;
+
+  Simon1994PlanetaryPositions.computeMoonPositionInEarthInertialFrame =
+    function (julianDate, result) {
+      if (!defined(julianDate)) {
+        julianDate = JulianDate.now();
+      }
+      const totalOffset =
+        that._orbitAccumulatedSeconds +
+        (that.orbitActive
+          ? ((performance.now() - that._orbitStartRealTime) / 1000) *
+            ORBIT_SPEED
+          : 0);
+      if (totalOffset === 0) {
+        return orig(julianDate, result);
+      }
+      JulianDate.addSeconds(julianDate, totalOffset, orbitScratchDate);
+      return orig(orbitScratchDate, result);
+    };
+
+  this._toggleOrbitCommand = createCommand(function () {
+    if (that.orbitActive) {
+      const elapsed = (performance.now() - that._orbitStartRealTime) / 1000;
+      that._orbitAccumulatedSeconds += elapsed * ORBIT_SPEED;
+      that.orbitActive = false;
+    } else {
+      that._orbitStartRealTime = performance.now();
+      that.orbitActive = true;
+    }
+  });
+
   this.tooltip = "Moon Phase";
 }
 
-MoonPhaseIndicatorViewModel.prototype._flyToMoon = function () {
-  const scene = this._scene;
+MoonPhaseIndicatorViewModel.prototype._getMoonFixedPosition = function (
+  result,
+) {
   const date = this._clock.currentTime;
-
   let icrfToFixed = Transforms.computeIcrfToFixedMatrix(
     date,
     scratchIcrfToFixed,
@@ -156,30 +198,60 @@ MoonPhaseIndicatorViewModel.prototype._flyToMoon = function () {
     );
   }
   if (!defined(icrfToFixed)) {
-    return;
+    return undefined;
   }
-
   const moonECI =
     Simon1994PlanetaryPositions.computeMoonPositionInEarthInertialFrame(
       date,
       scratchMoonPos,
     );
-  const moonFixed = Matrix3.multiplyByVector(
-    icrfToFixed,
-    moonECI,
-    scratchMoonFixed,
-  );
+  return Matrix3.multiplyByVector(icrfToFixed, moonECI, result);
+};
 
+MoonPhaseIndicatorViewModel.prototype._flyToMoon = function () {
+  const moonFixed = this._getMoonFixedPosition(scratchMoonFixed);
+  if (!defined(moonFixed)) {
+    return;
+  }
+
+  const that = this;
   const boundingSphere = new BoundingSphere(moonFixed, LUNAR_RADIUS);
 
-  scene.camera.flyToBoundingSphere(boundingSphere, {
+  this._scene.camera.flyToBoundingSphere(boundingSphere, {
     offset: {
       heading: 0,
       pitch: 0,
       range: LUNAR_RADIUS * 4,
     },
     duration: 3,
+    complete: function () {
+      that._startTrackingMoon();
+    },
   });
+};
+
+MoonPhaseIndicatorViewModel.prototype._startTrackingMoon = function () {
+  this._stopTrackingMoon();
+  const that = this;
+  const scene = this._scene;
+  const trackTransform = new Matrix4();
+
+  this._moonTrackingListener = scene.postUpdate.addEventListener(function () {
+    const moonNow = that._getMoonFixedPosition(scratchMoonFixed);
+    if (!defined(moonNow)) {
+      return;
+    }
+    Matrix4.fromTranslation(moonNow, trackTransform);
+    scene.camera.lookAtTransform(trackTransform);
+  });
+};
+
+MoonPhaseIndicatorViewModel.prototype._stopTrackingMoon = function () {
+  if (this._moonTrackingListener) {
+    this._moonTrackingListener();
+    this._moonTrackingListener = null;
+    this._scene.camera.lookAtTransform(Matrix4.IDENTITY);
+  }
 };
 
 MoonPhaseIndicatorViewModel.prototype._startUpdating = function () {
@@ -314,6 +386,11 @@ Object.defineProperties(MoonPhaseIndicatorViewModel.prototype, {
   toggleLabelCommand: {
     get: function () {
       return this._toggleLabelCommand;
+    },
+  },
+  toggleOrbitCommand: {
+    get: function () {
+      return this._toggleOrbitCommand;
     },
   },
 });
