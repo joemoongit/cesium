@@ -1,0 +1,141 @@
+.cesium-moonPhase-wrapper {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+
+.cesium-moonPhase-button {
+  display: inline-block;
+}
+
+.cesium-moonPhase-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  margin: 4px auto;
+}
+
+.cesium-moonPhase-panel {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  width: 200px;
+  background: rgba(38, 38, 38, 0.9);
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  color: #edffff;
+  font-size: 13px;
+  font-family: sans-serif;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.01);
+  transform-origin: right top;
+  transition:
+    visibility 0s 0.2s,
+    opacity 0.2s ease-in,
+    transform 0.2s ease-in;
+  z-index: 1;
+}
+
+.cesium-moonPhase-panel-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+.cesium-moonPhase-header {
+  background: rgba(84, 84, 84, 0.8);
+  padding: 6px 12px;
+  font-weight: bold;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cesium-moonPhase-viz {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px 0;
+}
+
+.cesium-moonPhase-disc {
+  width: 80px;
+  height: 80px;
+  filter: drop-shadow(0 0 6px rgba(245, 243, 206, 0.3));
+}
+
+.cesium-moonPhase-info {
+  padding: 4px 12px 10px 12px;
+}
+
+.cesium-moonPhase-name {
+  text-align: center;
+  font-size: 15px;
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #f5f3ce;
+}
+
+.cesium-moonPhase-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #bcd;
+}
+
+.cesium-moonPhase-separator {
+  border-top: 1px solid #444;
+  margin: 6px 0;
+}
+
+.cesium-moonPhase-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f44;
+  flex-shrink: 0;
+}
+
+.cesium-moonPhase-dot-visible {
+  background: #4f4;
+}
+
+.cesium-moonPhase-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.cesium-moonPhase-action-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cesium-moonPhase-action-btn-active {
+  background: #48b;
+  color: #fff;
+}
+
+.cesium-moonPhase-label {
+  position: absolute;
+  color: #f5f3ce;
+  font-family: sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+}

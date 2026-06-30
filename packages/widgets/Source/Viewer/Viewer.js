@@ -30,7 +30,8 @@ import ClockViewModel from "../ClockViewModel.js";
 import FullscreenButton from "../FullscreenButton/FullscreenButton.js";
 import Geocoder from "../Geocoder/Geocoder.js";
 import HomeButton from "../HomeButton/HomeButton.js";
-import RotateButton from "../RotateButton/RotateButton.js"
+import RotateButton from "../RotateButton/RotateButton.js";
+import MoonPhaseIndicator from "../MoonPhaseIndicator/MoonPhaseIndicator.js";
 import InfoBox from "../InfoBox/InfoBox.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
@@ -241,6 +242,10 @@ function enableVRUI(viewer, enabled) {
   }
   if (defined(rotateButton)) {
     rotateButton.container.style.visibility = visibility;
+  }
+  const moonPhaseIndicator = viewer._moonPhaseIndicator;
+  if (defined(moonPhaseIndicator)) {
+    moonPhaseIndicator.container.style.visibility = visibility;
   }
   if (defined(sceneModePicker)) {
     sceneModePicker.container.style.visibility = visibility;
@@ -650,6 +655,15 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     );
   }
 
+  // MoonPhaseIndicator
+  let moonPhaseIndicator;
+  if (
+    !defined(options.moonPhaseIndicator) ||
+    options.moonPhaseIndicator !== false
+  ) {
+    moonPhaseIndicator = new MoonPhaseIndicator(toolbar, scene, clock);
+  }
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
@@ -873,6 +887,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._toolbar = toolbar;
   this._homeButton = homeButton;
   this._rotateButton = rotateButton;
+  this._moonPhaseIndicator = moonPhaseIndicator;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1061,7 +1076,7 @@ Object.defineProperties(Viewer.prototype, {
     },
   },
 
-    /**
+  /**
    * Gets the RotateButton.
    * @memberof Viewer.prototype
    * @type {RotateButton}
@@ -1070,6 +1085,18 @@ Object.defineProperties(Viewer.prototype, {
   rotateButton: {
     get: function () {
       return this._rotateButton;
+    },
+  },
+
+  /**
+   * Gets the MoonPhaseIndicator.
+   * @memberof Viewer.prototype
+   * @type {MoonPhaseIndicator}
+   * @readonly
+   */
+  moonPhaseIndicator: {
+    get: function () {
+      return this._moonPhaseIndicator;
     },
   },
 
@@ -1745,6 +1772,9 @@ Viewer.prototype.destroy = function () {
   }
   if (defined(this._rotateButton)) {
     this._rotateButton = this._rotateButton.destroy();
+  }
+  if (defined(this._moonPhaseIndicator)) {
+    this._moonPhaseIndicator = this._moonPhaseIndicator.destroy();
   }
 
   if (defined(this._sceneModePicker)) {
