@@ -675,6 +675,17 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     sunIndicator = new SunIndicator(toolbar, scene, clock);
   }
 
+  if (defined(homeButton)) {
+    eventHelper.add(homeButton.viewModel.command.beforeExecute, function () {
+      if (defined(moonPhaseIndicator)) {
+        moonPhaseIndicator.viewModel._stopTrackingMoon();
+      }
+      if (defined(sunIndicator)) {
+        sunIndicator.viewModel._stopTrackingSun();
+      }
+    });
+  }
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
