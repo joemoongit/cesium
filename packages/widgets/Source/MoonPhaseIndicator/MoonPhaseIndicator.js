@@ -105,8 +105,14 @@ function MoonPhaseIndicator(container, scene, clock) {
         </button>
         <button type="button" class="cesium-button cesium-moonPhase-action-btn"
           data-bind="click: toggleOrbitCommand, css: { 'cesium-moonPhase-action-btn-active': orbitActive }">
-          10000x
+          Orbit
         </button>
+      </div>
+      <div data-bind="visible: orbitActive" class="cesium-moonPhase-slider-row">
+        <input type="range" min="1" max="10000" step="1"
+          class="cesium-moonPhase-slider"
+          data-bind="value: orbitSpeedValue, valueUpdate: 'input'" />
+        <span class="cesium-moonPhase-slider-label" data-bind="text: orbitSpeedLabel"></span>
       </div>
     </div>
   `;

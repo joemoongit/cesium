@@ -102,6 +102,8 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
   this.panelVisible = false;
   this.labelVisible = false;
   this.orbitActive = false;
+  this.orbitSpeedValue = "1";
+  this.orbitSpeedLabel = "1x";
 
   knockout.track(this, [
     "phaseName",
@@ -113,6 +115,8 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
     "panelVisible",
     "labelVisible",
     "orbitActive",
+    "orbitSpeedValue",
+    "orbitSpeedLabel",
   ]);
 
   const that = this;
@@ -146,9 +150,9 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
     Simon1994PlanetaryPositions.computeMoonPositionInEarthInertialFrame;
   this._orbitStartRealTime = 0;
   this._orbitAccumulatedSeconds = 0;
+  this._orbitSpeed = 1;
 
   const orbitScratchDate = new JulianDate();
-  const ORBIT_SPEED = 10000;
   const orig = this._origComputeMoon;
 
   Simon1994PlanetaryPositions.computeMoonPositionInEarthInertialFrame =
@@ -160,7 +164,7 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
         that._orbitAccumulatedSeconds +
         (that.orbitActive
           ? ((performance.now() - that._orbitStartRealTime) / 1000) *
-            ORBIT_SPEED
+            that._orbitSpeed
           : 0);
       if (totalOffset === 0) {
         return orig(julianDate, result);
@@ -172,12 +176,22 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
   this._toggleOrbitCommand = createCommand(function () {
     if (that.orbitActive) {
       const elapsed = (performance.now() - that._orbitStartRealTime) / 1000;
-      that._orbitAccumulatedSeconds += elapsed * ORBIT_SPEED;
+      that._orbitAccumulatedSeconds += elapsed * that._orbitSpeed;
       that.orbitActive = false;
     } else {
       that._orbitStartRealTime = performance.now();
       that.orbitActive = true;
     }
+  });
+
+  knockout.getObservable(this, "orbitSpeedValue").subscribe(function (val) {
+    if (that.orbitActive) {
+      const elapsed = (performance.now() - that._orbitStartRealTime) / 1000;
+      that._orbitAccumulatedSeconds += elapsed * that._orbitSpeed;
+      that._orbitStartRealTime = performance.now();
+    }
+    that._orbitSpeed = parseInt(val, 10) || 1;
+    that.orbitSpeedLabel = `${that._orbitSpeed.toLocaleString()}x`;
   });
 
   this.tooltip = "Moon Phase";

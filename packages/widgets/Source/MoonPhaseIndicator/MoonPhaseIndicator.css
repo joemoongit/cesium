@@ -126,6 +126,29 @@
   color: #fff;
 }
 
+.cesium-moonPhase-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px 0;
+}
+
+.cesium-moonPhase-slider {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: #48b;
+  cursor: pointer;
+}
+
+.cesium-moonPhase-slider-label {
+  font-size: 11px;
+  color: #edffff;
+  min-width: 48px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .cesium-moonPhase-label {
   position: absolute;
   color: #f5f3ce;

@@ -113,6 +113,29 @@
   color: #fff;
 }
 
+.cesium-sunIndicator-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px 0;
+}
+
+.cesium-sunIndicator-slider {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: #48b;
+  cursor: pointer;
+}
+
+.cesium-sunIndicator-slider-label {
+  font-size: 11px;
+  color: #edffff;
+  min-width: 48px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .cesium-sunIndicator-label {
   position: absolute;
   color: #ffd040;

@@ -115,8 +115,14 @@ cesiumSvgPath: { path: _svgPath, width: 100, height: 100 }",
         </button>
         <button type="button" class="cesium-button cesium-sunIndicator-action-btn"
           data-bind="click: toggleOrbitCommand, css: { 'cesium-sunIndicator-action-btn-active': orbitActive }">
-          10000x
+          Orbit
         </button>
+      </div>
+      <div data-bind="visible: orbitActive" class="cesium-sunIndicator-slider-row">
+        <input type="range" min="1" max="10000" step="1"
+          class="cesium-sunIndicator-slider"
+          data-bind="value: orbitSpeedValue, valueUpdate: 'input'" />
+        <span class="cesium-sunIndicator-slider-label" data-bind="text: orbitSpeedLabel"></span>
       </div>
     </div>
   `;
