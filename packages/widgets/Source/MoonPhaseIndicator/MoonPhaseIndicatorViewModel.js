@@ -96,6 +96,7 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
   this.phaseName = "---";
   this.illuminationPercent = "0";
   this.elongationDeg = "0";
+  this.distanceKm = "---";
   this.moonElevation = "---";
   this.moonVisible = false;
   this.shadowPath = computeMoonShadowPath(0, true);
@@ -109,6 +110,7 @@ function MoonPhaseIndicatorViewModel(scene, clock, labelOverlay) {
     "phaseName",
     "illuminationPercent",
     "elongationDeg",
+    "distanceKm",
     "moonElevation",
     "moonVisible",
     "shadowPath",
@@ -303,6 +305,10 @@ MoonPhaseIndicatorViewModel.prototype._update = function () {
       date,
       scratchMoonPos,
     );
+
+  this.distanceKm = Math.round(
+    Cartesian3.magnitude(moonPos) / 1000,
+  ).toLocaleString();
 
   const elongation = Cartesian3.angleBetween(sunPos, moonPos);
   const elongationDeg = CesiumMath.toDegrees(elongation);

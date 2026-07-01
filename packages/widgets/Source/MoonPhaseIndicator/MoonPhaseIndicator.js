@@ -84,6 +84,10 @@ function MoonPhaseIndicator(container, scene, clock) {
         <span>Elongation: </span>
         <span data-bind="text: elongationDeg"></span>&deg;
       </div>
+      <div class="cesium-moonPhase-detail">
+        <span>Distance: </span>
+        <span><span data-bind="text: distanceKm"></span> km</span>
+      </div>
       <div class="cesium-moonPhase-separator"></div>
       <div class="cesium-moonPhase-detail">
         <span>Moon Elevation: </span>
