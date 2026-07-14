@@ -30,6 +30,7 @@ import ClockViewModel from "../ClockViewModel.js";
 import FullscreenButton from "../FullscreenButton/FullscreenButton.js";
 import Geocoder from "../Geocoder/Geocoder.js";
 import HomeButton from "../HomeButton/HomeButton.js";
+import SunPosition from "../SunPosition/SunPosition.js";
 import InfoBox from "../InfoBox/InfoBox.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
@@ -621,6 +622,11 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     );
   }
 
+  // SunPosition
+  // A toolbar widget that reports the subsolar point and draws the day/night
+  // terminator. Created for every Viewer so the feature is available by default.
+  const sunPosition = new SunPosition(toolbar, scene, clock);
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
@@ -843,6 +849,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._destroyClockViewModel = destroyClockViewModel;
   this._toolbar = toolbar;
   this._homeButton = homeButton;
+  this._sunPosition = sunPosition;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1700,6 +1707,10 @@ Viewer.prototype.destroy = function () {
 
   if (defined(this._homeButton)) {
     this._homeButton = this._homeButton.destroy();
+  }
+
+  if (defined(this._sunPosition)) {
+    this._sunPosition = this._sunPosition.destroy();
   }
 
   if (defined(this._sceneModePicker)) {
