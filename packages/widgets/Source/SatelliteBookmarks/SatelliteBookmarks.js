@@ -122,24 +122,84 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
           data-bind="textInput: newName" />
       </div>
 
-      <div class="cesium-satelliteBookmarks-coordRow">
-        <div class="cesium-satelliteBookmarks-coordField">
-          <label class="cesium-satelliteBookmarks-coordLabel">Lat</label>
-          <input type="number" min="-90" max="90" step="0.1"
-            class="cesium-satelliteBookmarks-coordInput"
-            data-bind="textInput: newLat" />
+      <div class="cesium-satelliteBookmarks-modeToggle">
+        <button type="button"
+          class="cesium-satelliteBookmarks-modeBtn"
+          data-bind="click: toggleModeCommand,
+                     css: { 'cesium-satelliteBookmarks-modeBtn-active': !useKeplerian }">
+          Simple
+        </button>
+        <button type="button"
+          class="cesium-satelliteBookmarks-modeBtn"
+          data-bind="click: toggleModeCommand,
+                     css: { 'cesium-satelliteBookmarks-modeBtn-active': useKeplerian }">
+          Keplerian
+        </button>
+      </div>
+
+      <div data-bind="visible: !useKeplerian">
+        <div class="cesium-satelliteBookmarks-coordRow">
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Lat</label>
+            <input type="number" min="-90" max="90" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newLat" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Lon</label>
+            <input type="number" min="-180" max="180" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newLon" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Alt (km)</label>
+            <input type="number" min="160" max="200000" step="10"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newAltitudeKm" />
+          </div>
         </div>
-        <div class="cesium-satelliteBookmarks-coordField">
-          <label class="cesium-satelliteBookmarks-coordLabel">Lon</label>
-          <input type="number" min="-180" max="180" step="0.1"
-            class="cesium-satelliteBookmarks-coordInput"
-            data-bind="textInput: newLon" />
+      </div>
+
+      <div data-bind="visible: useKeplerian">
+        <div class="cesium-satelliteBookmarks-coordRow">
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Alt (km)</label>
+            <input type="number" min="160" max="200000" step="10"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newAltitudeKm" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Ecc</label>
+            <input type="number" min="0" max="0.99" step="0.01"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newEccentricity" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">Inc &deg;</label>
+            <input type="number" min="0" max="180" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newInclination" />
+          </div>
         </div>
-        <div class="cesium-satelliteBookmarks-coordField">
-          <label class="cesium-satelliteBookmarks-coordLabel">Alt (km)</label>
-          <input type="number" min="160" max="200000" step="10"
-            class="cesium-satelliteBookmarks-coordInput"
-            data-bind="textInput: newAltitudeKm" />
+        <div class="cesium-satelliteBookmarks-coordRow">
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">RAAN &deg;</label>
+            <input type="number" min="0" max="360" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newRaan" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">&omega; &deg;</label>
+            <input type="number" min="0" max="360" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newArgPerigee" />
+          </div>
+          <div class="cesium-satelliteBookmarks-coordField">
+            <label class="cesium-satelliteBookmarks-coordLabel">M&#x2080; &deg;</label>
+            <input type="number" min="0" max="360" step="0.1"
+              class="cesium-satelliteBookmarks-coordInput"
+              data-bind="textInput: newMeanAnomaly" />
+          </div>
         </div>
       </div>
 
@@ -189,7 +249,12 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
                 data-bind="text: orbitBand"></span>
               <span data-bind="text: (altitudeKm >= 1000 ? (altitudeKm/1000).toFixed(1) + 'k' : Math.round(altitudeKm)) + ' km'"></span>
               <span class="cesium-satelliteBookmarks-coordSep">|</span>
+              <!-- ko if: mode === 'simple' -->
               <span data-bind="text: lat.toFixed(1) + '°, ' + lon.toFixed(1) + '°'"></span>
+              <!-- /ko -->
+              <!-- ko if: mode === 'keplerian' -->
+              <span data-bind="text: inclinationDeg.toFixed(1) + '° inc'"></span>
+              <!-- /ko -->
             </div>
           </div>
           <button type="button" class="cesium-satelliteBookmarks-removeBtn"
@@ -207,7 +272,8 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
             <button type="button"
               class="cesium-button cesium-satelliteBookmarks-ctrlBtn"
               data-bind="click: function() { $parent.toggleOrbitCommand($index()); },
-                         css: { 'cesium-satelliteBookmarks-ctrlBtn-active': $parent.orbitFlags[$index()] }">
+                         css: { 'cesium-satelliteBookmarks-ctrlBtn-active': $parent.orbitFlags[$index()] },
+                         visible: $parent.isKeplerian($index())">
               Orbit
             </button>
             <button type="button"
@@ -216,16 +282,9 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
                          css: { 'cesium-satelliteBookmarks-ctrlBtn-active': $parent.tetherFlags[$index()] }">
               Tether
             </button>
-            <button type="button"
-              class="cesium-button cesium-satelliteBookmarks-ctrlBtn cesium-satelliteBookmarks-dirBtn"
-              data-bind="click: function() { $parent.toggleOrbitDirectionCommand($index()); },
-                         text: $parent.orbitSpeedLabels[$index()] && $parent.orbitSpeedLabels[$index()].charAt(0) === '-' ? '◀ W' : 'E ▶',
-                         visible: $parent.orbitFlags[$index()]"
-              title="Toggle direction">
-            </button>
           </div>
           <div class="cesium-satelliteBookmarks-orbitSliderRow"
-            data-bind="visible: $parent.orbitFlags[$index()]">
+            data-bind="visible: $parent.orbitFlags[$index()] && $parent.isKeplerian($index())">
             <span class="cesium-satelliteBookmarks-sliderLabel">Speed:</span>
             <input type="range" min="1" max="1000" step="1"
               class="cesium-satelliteBookmarks-slider"

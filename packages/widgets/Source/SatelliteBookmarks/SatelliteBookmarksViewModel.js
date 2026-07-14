@@ -13,9 +13,11 @@ import {
   LabelStyle,
   Material,
   Math as CesiumMath,
+  Matrix3,
   Ellipsoid,
   NearFarScalar,
   PolylineCollection,
+  Transforms,
   VerticalOrigin,
 } from "@cesium/engine";
 import knockout from "../ThirdParty/knockout.js";
@@ -24,6 +26,8 @@ import createCommand from "../createCommand.js";
 const DEFAULT_ALTITUDE_KM = 400;
 const EARTH_RADIUS = 6371000;
 const EARTH_GM = 3.986004418e14;
+const DEG = CesiumMath.RADIANS_PER_DEGREE;
+const TWO_PI = 2 * Math.PI;
 
 function getOrbitBand(altKm) {
   if (altKm < 2000) {
@@ -38,9 +42,102 @@ function getOrbitBand(altKm) {
   return "HEO";
 }
 
-function orbitalAngularVelocity(altKm) {
-  const r = EARTH_RADIUS + altKm * 1000;
-  return Math.sqrt(EARTH_GM / (r * r * r));
+function solveKepler(M, e) {
+  M = ((M % TWO_PI) + TWO_PI) % TWO_PI;
+  let E = M;
+  for (let i = 0; i < 30; i++) {
+    const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    E -= dE;
+    if (Math.abs(dE) < 1e-12) {
+      break;
+    }
+  }
+  return E;
+}
+
+const scratchIcrfToFixed = new Matrix3();
+const scratchFixedToIcrf = new Matrix3();
+const scratchEci = new Cartesian3();
+const scratchEciCam = new Cartesian3();
+
+function keplerianToEcef(bookmark, simTimeSec, clock) {
+  const a = EARTH_RADIUS + bookmark.altitudeKm * 1000;
+  const e = bookmark.eccentricity || 0;
+  const inc = (bookmark.inclinationDeg || 0) * DEG;
+  const raan = (bookmark.raanDeg || 0) * DEG;
+  const argP = (bookmark.argPerigeeDeg || 0) * DEG;
+  const M0 = (bookmark.meanAnomalyDeg || 0) * DEG;
+
+  const n = Math.sqrt(EARTH_GM / (a * a * a));
+  const M = M0 + n * simTimeSec;
+  const E = solveKepler(M, e);
+
+  const cosE = Math.cos(E);
+  const sinE = Math.sin(E);
+  const sqrt1me2 = Math.sqrt(1 - e * e);
+  const denom = 1 - e * cosE;
+  const cosV = (cosE - e) / denom;
+  const sinV = (sqrt1me2 * sinE) / denom;
+  const r = a * denom;
+
+  const xP = r * cosV;
+  const yP = r * sinV;
+
+  const cosO = Math.cos(raan);
+  const sinO = Math.sin(raan);
+  const cosI = Math.cos(inc);
+  const sinI = Math.sin(inc);
+  const cosW = Math.cos(argP);
+  const sinW = Math.sin(argP);
+
+  scratchEci.x =
+    (cosO * cosW - sinO * sinW * cosI) * xP +
+    (-cosO * sinW - sinO * cosW * cosI) * yP;
+  scratchEci.y =
+    (sinO * cosW + cosO * sinW * cosI) * xP +
+    (-sinO * sinW + cosO * cosW * cosI) * yP;
+  scratchEci.z = sinW * sinI * xP + cosW * sinI * yP;
+
+  let icrfToFixed = Transforms.computeIcrfToFixedMatrix(
+    clock.currentTime,
+    scratchIcrfToFixed,
+  );
+  if (!defined(icrfToFixed)) {
+    icrfToFixed = Transforms.computeTemeToPseudoFixedMatrix(
+      clock.currentTime,
+      scratchIcrfToFixed,
+    );
+  }
+  if (!defined(icrfToFixed)) {
+    return Cartesian3.clone(scratchEci);
+  }
+
+  return Matrix3.multiplyByVector(icrfToFixed, scratchEci, new Cartesian3());
+}
+
+function cameraToEciLongitude(camera, clock) {
+  let icrfToFixed = Transforms.computeIcrfToFixedMatrix(
+    clock.currentTime,
+    scratchIcrfToFixed,
+  );
+  if (!defined(icrfToFixed)) {
+    icrfToFixed = Transforms.computeTemeToPseudoFixedMatrix(
+      clock.currentTime,
+      scratchIcrfToFixed,
+    );
+  }
+  if (!defined(icrfToFixed)) {
+    const c = Cartographic.fromCartesian(camera.positionWC, Ellipsoid.WGS84);
+    return defined(c) ? CesiumMath.toDegrees(c.longitude) : 0;
+  }
+
+  Matrix3.transpose(icrfToFixed, scratchFixedToIcrf);
+  Matrix3.multiplyByVector(
+    scratchFixedToIcrf,
+    camera.positionWC,
+    scratchEciCam,
+  );
+  return CesiumMath.toDegrees(Math.atan2(scratchEciCam.y, scratchEciCam.x));
 }
 
 const PRESET_ICONS = [
@@ -119,18 +216,32 @@ const PRESET_ICONS = [
 
 function svgToDataUri(svgString) {
   const cleaned = svgString.trim();
-  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(cleaned)))}`;
+  return `data:image/svg+xml;base64,${btoa(
+    unescape(encodeURIComponent(cleaned)),
+  )}`;
 }
 
 function createOrbitState() {
   return {
     active: false,
     speed: 1,
-    direction: 1,
-    accumulatedRadians: 0,
+    accumulatedSeconds: 0,
     startTime: 0,
     tetherVisible: true,
   };
+}
+
+function migrateBookmark(b) {
+  if (!defined(b.mode)) {
+    if (defined(b.inclinationDeg)) {
+      b.mode = "keplerian";
+    } else {
+      b.mode = "simple";
+      b.lon = b.lon || 0;
+      b.lat = b.lat || 0;
+    }
+  }
+  return b;
 }
 
 function SatelliteBookmarksViewModel(scene, clock, dataSources) {
@@ -153,15 +264,20 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
 
   this._orbitStates = [];
   this._postUpdateListener = null;
-  this._anyOrbiting = false;
 
   this.panelVisible = false;
   this.bookmarks = [];
   this.selectedIndex = -1;
+  this.useKeplerian = true;
   this.newName = "";
   this.newLat = "0";
   this.newLon = "0";
   this.newAltitudeKm = String(DEFAULT_ALTITUDE_KM);
+  this.newEccentricity = "0";
+  this.newInclination = "51.6";
+  this.newRaan = "0";
+  this.newArgPerigee = "0";
+  this.newMeanAnomaly = "0";
   this.selectedPresetIndex = 0;
   this.showAddForm = false;
   this.customSvgData = "";
@@ -173,10 +289,16 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     "panelVisible",
     "bookmarks",
     "selectedIndex",
+    "useKeplerian",
     "newName",
     "newLat",
     "newLon",
     "newAltitudeKm",
+    "newEccentricity",
+    "newInclination",
+    "newRaan",
+    "newArgPerigee",
+    "newMeanAnomaly",
     "selectedPresetIndex",
     "showAddForm",
     "customSvgData",
@@ -186,30 +308,21 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
   ]);
 
   const that = this;
-
   this._presetIcons = PRESET_ICONS;
-
   this._loadBookmarks();
 
   this._command = createCommand(function () {
     that.panelVisible = !that.panelVisible;
   });
 
+  this._toggleModeCommand = createCommand(function () {
+    that.useKeplerian = !that.useKeplerian;
+  });
+
   this._toggleAddFormCommand = createCommand(function () {
     that.showAddForm = !that.showAddForm;
     if (that.showAddForm) {
-      that.newName = "";
-      that.newAltitudeKm = String(DEFAULT_ALTITUDE_KM);
-      that.selectedPresetIndex = 0;
-      that.customSvgData = "";
-      const cartographic = Cartographic.fromCartesian(
-        that._scene.camera.positionWC,
-        Ellipsoid.WGS84,
-      );
-      if (defined(cartographic)) {
-        that.newLat = CesiumMath.toDegrees(cartographic.latitude).toFixed(2);
-        that.newLon = CesiumMath.toDegrees(cartographic.longitude).toFixed(2);
-      }
+      that._resetForm();
     }
   });
 
@@ -244,10 +357,6 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     that._setOrbitSpeed(args.index, args.value);
   });
 
-  this._toggleOrbitDirectionCommand = createCommand(function (index) {
-    that._toggleOrbitDirection(index);
-  });
-
   this._toggleTetherCommand = createCommand(function (index) {
     that._toggleTether(index);
   });
@@ -271,9 +380,33 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
   this.tooltip = "Satellite Bookmarks";
 }
 
+SatelliteBookmarksViewModel.prototype._resetForm = function () {
+  this.newName = "";
+  this.newAltitudeKm = String(DEFAULT_ALTITUDE_KM);
+  this.newEccentricity = "0";
+  this.newInclination = "51.6";
+  this.newArgPerigee = "0";
+  this.newMeanAnomaly = "0";
+  this.selectedPresetIndex = 0;
+  this.customSvgData = "";
+
+  const cartographic = Cartographic.fromCartesian(
+    this._scene.camera.positionWC,
+    Ellipsoid.WGS84,
+  );
+  if (defined(cartographic)) {
+    this.newLat = CesiumMath.toDegrees(cartographic.latitude).toFixed(2);
+    this.newLon = CesiumMath.toDegrees(cartographic.longitude).toFixed(2);
+  } else {
+    this.newLat = "0";
+    this.newLon = "0";
+  }
+
+  const eciLon = cameraToEciLongitude(this._scene.camera, this._clock);
+  this.newRaan = ((eciLon % 360) + 360).toFixed(1);
+};
+
 SatelliteBookmarksViewModel.prototype._addBookmark = function () {
-  const lat = parseFloat(this.newLat) || 0;
-  const lon = parseFloat(this.newLon) || 0;
   const altKm = parseFloat(this.newAltitudeKm) || DEFAULT_ALTITUDE_KM;
 
   let svgData;
@@ -283,15 +416,38 @@ SatelliteBookmarksViewModel.prototype._addBookmark = function () {
     svgData = PRESET_ICONS[this.selectedPresetIndex].svg;
   }
 
-  const bookmark = {
-    name: this.newName.trim() || `Satellite ${this.bookmarks.length + 1}`,
-    lon: CesiumMath.clamp(lon, -180, 180),
-    lat: CesiumMath.clamp(lat, -90, 90),
-    altitudeKm: Math.max(altKm, 160),
-    orbitBand: getOrbitBand(altKm),
-    svg: svgData,
-    presetIndex: this.customSvgData ? -1 : this.selectedPresetIndex,
-  };
+  let bookmark;
+
+  if (this.useKeplerian) {
+    bookmark = {
+      mode: "keplerian",
+      name: this.newName.trim() || `Satellite ${this.bookmarks.length + 1}`,
+      altitudeKm: Math.max(altKm, 160),
+      eccentricity: CesiumMath.clamp(
+        parseFloat(this.newEccentricity) || 0,
+        0,
+        0.99,
+      ),
+      inclinationDeg: parseFloat(this.newInclination) || 0,
+      raanDeg: parseFloat(this.newRaan) || 0,
+      argPerigeeDeg: parseFloat(this.newArgPerigee) || 0,
+      meanAnomalyDeg: parseFloat(this.newMeanAnomaly) || 0,
+      orbitBand: getOrbitBand(altKm),
+      svg: svgData,
+      presetIndex: this.customSvgData ? -1 : this.selectedPresetIndex,
+    };
+  } else {
+    bookmark = {
+      mode: "simple",
+      name: this.newName.trim() || `Satellite ${this.bookmarks.length + 1}`,
+      lon: CesiumMath.clamp(parseFloat(this.newLon) || 0, -180, 180),
+      lat: CesiumMath.clamp(parseFloat(this.newLat) || 0, -90, 90),
+      altitudeKm: Math.max(altKm, 160),
+      orbitBand: getOrbitBand(altKm),
+      svg: svgData,
+      presetIndex: this.customSvgData ? -1 : this.selectedPresetIndex,
+    };
+  }
 
   const updated = this.bookmarks.slice();
   updated.push(bookmark);
@@ -300,12 +456,57 @@ SatelliteBookmarksViewModel.prototype._addBookmark = function () {
   this._syncOrbitUI();
   this._syncEntities();
   this.showAddForm = false;
-  this.newName = "";
-  this.newLat = "0";
-  this.newLon = "0";
-  this.newAltitudeKm = String(DEFAULT_ALTITUDE_KM);
-  this.customSvgData = "";
+  this._resetForm();
   this._saveBookmarks();
+};
+
+SatelliteBookmarksViewModel.prototype._getSimTime = function (index) {
+  const state = this._orbitStates[index];
+  if (!state) {
+    return 0;
+  }
+  let t = state.accumulatedSeconds;
+  if (state.active) {
+    t += ((performance.now() - state.startTime) / 1000) * state.speed;
+  }
+  return t;
+};
+
+SatelliteBookmarksViewModel.prototype._computeSatellitePosition = function (
+  index,
+) {
+  const b = this.bookmarks[index];
+  if (!defined(b)) {
+    return Cartesian3.ZERO;
+  }
+
+  if (b.mode === "simple") {
+    return Cartesian3.fromDegrees(b.lon, b.lat, b.altitudeKm * 1000);
+  }
+  return keplerianToEcef(b, this._getSimTime(index), this._clock);
+};
+
+SatelliteBookmarksViewModel.prototype._computeGroundPosition = function (
+  index,
+) {
+  const b = this.bookmarks[index];
+  if (!defined(b)) {
+    return Cartesian3.ZERO;
+  }
+
+  if (b.mode === "simple") {
+    return Cartesian3.fromDegrees(b.lon, b.lat, 0);
+  }
+  const satPos = this._computeSatellitePosition(index);
+  const cartographic = Cartographic.fromCartesian(satPos, Ellipsoid.WGS84);
+  if (!defined(cartographic)) {
+    return Cartesian3.ZERO;
+  }
+  return Cartesian3.fromRadians(
+    cartographic.longitude,
+    cartographic.latitude,
+    0,
+  );
 };
 
 SatelliteBookmarksViewModel.prototype._flyToBookmark = function (index) {
@@ -350,9 +551,8 @@ SatelliteBookmarksViewModel.prototype._stopOrbit = function (index) {
     return;
   }
 
-  const elapsed = (performance.now() - state.startTime) / 1000;
-  const omega = orbitalAngularVelocity(this.bookmarks[index].altitudeKm);
-  state.accumulatedRadians += elapsed * omega * state.speed * state.direction;
+  state.accumulatedSeconds +=
+    ((performance.now() - state.startTime) / 1000) * state.speed;
   state.active = false;
   this._checkStopAnimationLoop();
 };
@@ -364,28 +564,11 @@ SatelliteBookmarksViewModel.prototype._setOrbitSpeed = function (index, value) {
   }
 
   if (state.active) {
-    const elapsed = (performance.now() - state.startTime) / 1000;
-    const omega = orbitalAngularVelocity(this.bookmarks[index].altitudeKm);
-    state.accumulatedRadians += elapsed * omega * state.speed * state.direction;
+    state.accumulatedSeconds +=
+      ((performance.now() - state.startTime) / 1000) * state.speed;
     state.startTime = performance.now();
   }
   state.speed = parseInt(value, 10) || 1;
-  this._syncOrbitUI();
-};
-
-SatelliteBookmarksViewModel.prototype._toggleOrbitDirection = function (index) {
-  const state = this._orbitStates[index];
-  if (!state) {
-    return;
-  }
-
-  if (state.active) {
-    const elapsed = (performance.now() - state.startTime) / 1000;
-    const omega = orbitalAngularVelocity(this.bookmarks[index].altitudeKm);
-    state.accumulatedRadians += elapsed * omega * state.speed * state.direction;
-    state.startTime = performance.now();
-  }
-  state.direction *= -1;
   this._syncOrbitUI();
 };
 
@@ -396,12 +579,10 @@ SatelliteBookmarksViewModel.prototype._toggleTether = function (index) {
   }
 
   state.tetherVisible = !state.tetherVisible;
-
   const line = this._tetherLineRefs[index];
   if (defined(line)) {
     line.show = state.tetherVisible;
   }
-
   this._syncOrbitUI();
   this._scene.requestRender();
 };
@@ -411,8 +592,7 @@ SatelliteBookmarksViewModel.prototype._syncOrbitUI = function () {
     return s.active;
   });
   this.orbitSpeedLabels = this._orbitStates.map(function (s) {
-    const dir = s.direction > 0 ? "" : "-";
-    return `${dir}${s.speed}x`;
+    return `${s.speed}x`;
   });
   this.tetherFlags = this._orbitStates.map(function (s) {
     return s.tetherVisible;
@@ -423,7 +603,6 @@ SatelliteBookmarksViewModel.prototype._startAnimationLoop = function () {
   if (this._postUpdateListener) {
     return;
   }
-
   const that = this;
   this._postUpdateListener = this._scene.postUpdate.addEventListener(
     function () {
@@ -443,63 +622,14 @@ SatelliteBookmarksViewModel.prototype._checkStopAnimationLoop = function () {
   }
 };
 
-SatelliteBookmarksViewModel.prototype._computeSatellitePosition = function (
-  index,
-) {
-  const b = this.bookmarks[index];
-  if (!defined(b)) {
-    return Cartesian3.ZERO;
-  }
-
-  const state = this._orbitStates[index];
-  let lon = b.lon;
-  if (state) {
-    let totalRad = state.accumulatedRadians;
-    if (state.active) {
-      const elapsed = (performance.now() - state.startTime) / 1000;
-      totalRad +=
-        elapsed *
-        orbitalAngularVelocity(b.altitudeKm) *
-        state.speed *
-        state.direction;
-    }
-    lon += CesiumMath.toDegrees(totalRad);
-  }
-  return Cartesian3.fromDegrees(lon, b.lat, b.altitudeKm * 1000);
-};
-
-SatelliteBookmarksViewModel.prototype._computeGroundPosition = function (
-  index,
-) {
-  const b = this.bookmarks[index];
-  if (!defined(b)) {
-    return Cartesian3.ZERO;
-  }
-
-  const state = this._orbitStates[index];
-  let lon = b.lon;
-  if (state) {
-    let totalRad = state.accumulatedRadians;
-    if (state.active) {
-      const elapsed = (performance.now() - state.startTime) / 1000;
-      totalRad +=
-        elapsed *
-        orbitalAngularVelocity(b.altitudeKm) *
-        state.speed *
-        state.direction;
-    }
-    lon += CesiumMath.toDegrees(totalRad);
-  }
-  return Cartesian3.fromDegrees(lon, b.lat, 0);
-};
-
 SatelliteBookmarksViewModel.prototype._updateOrbitingEntities = function () {
   for (let i = 0; i < this.bookmarks.length; i++) {
     const line = this._tetherLineRefs[i];
     if (defined(line) && line.show) {
-      const groundPos = this._computeGroundPosition(i);
-      const satPos = this._computeSatellitePosition(i);
-      line.positions = [groundPos, satPos];
+      line.positions = [
+        this._computeGroundPosition(i),
+        this._computeSatellitePosition(i),
+      ];
     }
   }
   this._scene.requestRender();
@@ -588,15 +718,25 @@ SatelliteBookmarksViewModel.prototype._destroyDataSource = function () {
 SatelliteBookmarksViewModel.prototype._saveBookmarks = function () {
   try {
     const data = this.bookmarks.map(function (b) {
-      return {
+      const entry = {
+        mode: b.mode,
         name: b.name,
-        lon: b.lon,
-        lat: b.lat,
         altitudeKm: b.altitudeKm,
         orbitBand: b.orbitBand,
         svg: b.svg,
         presetIndex: b.presetIndex,
       };
+      if (b.mode === "simple") {
+        entry.lon = b.lon;
+        entry.lat = b.lat;
+      } else {
+        entry.eccentricity = b.eccentricity;
+        entry.inclinationDeg = b.inclinationDeg;
+        entry.raanDeg = b.raanDeg;
+        entry.argPerigeeDeg = b.argPerigeeDeg;
+        entry.meanAnomalyDeg = b.meanAnomalyDeg;
+      }
+      return entry;
     });
     localStorage.setItem("cesium-satellite-bookmarks", JSON.stringify(data));
   } catch (e) {
@@ -608,7 +748,7 @@ SatelliteBookmarksViewModel.prototype._loadBookmarks = function () {
   try {
     const raw = localStorage.getItem("cesium-satellite-bookmarks");
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw).map(migrateBookmark);
       this.bookmarks = parsed;
       this._orbitStates = parsed.map(function () {
         return createOrbitState();
@@ -639,6 +779,11 @@ SatelliteBookmarksViewModel.prototype.getOrbitSpeedValue = function (index) {
   return state ? String(state.speed) : "1";
 };
 
+SatelliteBookmarksViewModel.prototype.isKeplerian = function (index) {
+  const b = this.bookmarks[index];
+  return defined(b) && b.mode === "keplerian";
+};
+
 Object.defineProperties(SatelliteBookmarksViewModel.prototype, {
   scene: {
     get: function () {
@@ -648,6 +793,11 @@ Object.defineProperties(SatelliteBookmarksViewModel.prototype, {
   command: {
     get: function () {
       return this._command;
+    },
+  },
+  toggleModeCommand: {
+    get: function () {
+      return this._toggleModeCommand;
     },
   },
   toggleAddFormCommand: {
@@ -683,11 +833,6 @@ Object.defineProperties(SatelliteBookmarksViewModel.prototype, {
   setOrbitSpeedCommand: {
     get: function () {
       return this._setOrbitSpeedCommand;
-    },
-  },
-  toggleOrbitDirectionCommand: {
-    get: function () {
-      return this._toggleOrbitDirectionCommand;
     },
   },
   toggleTetherCommand: {

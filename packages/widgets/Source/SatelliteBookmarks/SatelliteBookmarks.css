@@ -112,6 +112,33 @@
   color: #889;
 }
 
+.cesium-satelliteBookmarks-modeToggle {
+  display: flex;
+  margin-bottom: 8px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cesium-satelliteBookmarks-modeBtn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  background: transparent;
+  color: #889;
+  border: none;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.cesium-satelliteBookmarks-modeBtn-active {
+  background: rgba(74, 144, 217, 0.3);
+  color: #6af;
+  font-weight: bold;
+}
+
 .cesium-satelliteBookmarks-coordRow {
   display: flex;
   gap: 6px;
