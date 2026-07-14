@@ -31,6 +31,7 @@ import FullscreenButton from "../FullscreenButton/FullscreenButton.js";
 import Geocoder from "../Geocoder/Geocoder.js";
 import HomeButton from "../HomeButton/HomeButton.js";
 import InfoBox from "../InfoBox/InfoBox.js";
+import Waypoints from "../Waypoints/Waypoints.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
 import SceneModePicker from "../SceneModePicker/SceneModePicker.js";
@@ -621,6 +622,11 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     );
   }
 
+  // Waypoints
+  // A toolbar widget that bookmarks camera views and flies back to them.
+  // Created for every Viewer so the feature is available by default.
+  const waypoints = new Waypoints(toolbar, scene);
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
@@ -843,6 +849,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._destroyClockViewModel = destroyClockViewModel;
   this._toolbar = toolbar;
   this._homeButton = homeButton;
+  this._waypoints = waypoints;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1700,6 +1707,10 @@ Viewer.prototype.destroy = function () {
 
   if (defined(this._homeButton)) {
     this._homeButton = this._homeButton.destroy();
+  }
+
+  if (defined(this._waypoints)) {
+    this._waypoints = this._waypoints.destroy();
   }
 
   if (defined(this._sceneModePicker)) {

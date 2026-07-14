@@ -1,0 +1,48 @@
+.cesium-waypoints-wrapper {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+
+.cesium-waypoints-panel {
+  display: none;
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 200px;
+  padding: 8px 10px;
+  background: rgba(38, 38, 38, 0.9);
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #edffff;
+  font-family: sans-serif;
+  font-size: 13px;
+  z-index: 1000;
+}
+
+.cesium-waypoints-panel-visible {
+  display: block;
+}
+
+.cesium-waypoints-header {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.cesium-waypoints-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.cesium-waypoints-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 2px 0;
+}
+
+.cesium-waypoints-entry {
+  flex: 1;
+  text-align: left;
+}
