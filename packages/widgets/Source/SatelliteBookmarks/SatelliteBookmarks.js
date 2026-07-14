@@ -123,21 +123,19 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
       </div>
 
       <div class="cesium-satelliteBookmarks-modeToggle">
-        <button type="button"
-          class="cesium-satelliteBookmarks-modeBtn"
-          data-bind="click: toggleModeCommand,
-                     css: { 'cesium-satelliteBookmarks-modeBtn-active': !useKeplerian }">
-          Simple
-        </button>
-        <button type="button"
-          class="cesium-satelliteBookmarks-modeBtn"
-          data-bind="click: toggleModeCommand,
-                     css: { 'cesium-satelliteBookmarks-modeBtn-active': useKeplerian }">
-          Keplerian
-        </button>
+        <button type="button" class="cesium-satelliteBookmarks-modeBtn"
+          data-bind="click: function() { setFormModeCommand('simple'); },
+                     css: { 'cesium-satelliteBookmarks-modeBtn-active': formMode === 'simple' }">Simple</button>
+        <button type="button" class="cesium-satelliteBookmarks-modeBtn"
+          data-bind="click: function() { setFormModeCommand('keplerian'); },
+                     css: { 'cesium-satelliteBookmarks-modeBtn-active': formMode === 'keplerian' }">Keplerian</button>
+        <button type="button" class="cesium-satelliteBookmarks-modeBtn"
+          data-bind="click: function() { setFormModeCommand('tle'); },
+                     css: { 'cesium-satelliteBookmarks-modeBtn-active': formMode === 'tle' }">TLE</button>
       </div>
 
-      <div data-bind="visible: !useKeplerian">
+      <!-- Simple mode -->
+      <div data-bind="visible: formMode === 'simple'">
         <div class="cesium-satelliteBookmarks-coordRow">
           <div class="cesium-satelliteBookmarks-coordField">
             <label class="cesium-satelliteBookmarks-coordLabel">Lat</label>
@@ -160,7 +158,8 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
         </div>
       </div>
 
-      <div data-bind="visible: useKeplerian">
+      <!-- Keplerian mode -->
+      <div data-bind="visible: formMode === 'keplerian'">
         <div class="cesium-satelliteBookmarks-coordRow">
           <div class="cesium-satelliteBookmarks-coordField">
             <label class="cesium-satelliteBookmarks-coordLabel">Alt (km)</label>
@@ -203,7 +202,16 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
         </div>
       </div>
 
-      <div class="cesium-satelliteBookmarks-iconPicker">
+      <!-- TLE mode -->
+      <div data-bind="visible: formMode === 'tle'">
+        <textarea class="cesium-satelliteBookmarks-tleInput" rows="3"
+          placeholder="Paste TLE (2 or 3 lines)..."
+          data-bind="textInput: newTle"></textarea>
+        <div class="cesium-satelliteBookmarks-tleError"
+          data-bind="text: tleError, visible: tleError"></div>
+      </div>
+
+      <div class="cesium-satelliteBookmarks-iconPicker" data-bind="visible: formMode !== 'tle'">
         <div class="cesium-satelliteBookmarks-iconPicker-label">Icon:</div>
         <div class="cesium-satelliteBookmarks-iconPicker-row">
           <button type="button" class="cesium-satelliteBookmarks-arrowBtn"
@@ -217,7 +225,7 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
           data-bind="text: customSvgData ? 'Custom SVG' : presetIcons[selectedPresetIndex].name"></div>
       </div>
 
-      <div class="cesium-satelliteBookmarks-uploadRow">
+      <div class="cesium-satelliteBookmarks-uploadRow" data-bind="visible: formMode !== 'tle'">
         <label class="cesium-button cesium-satelliteBookmarks-uploadBtn">
           Upload SVG
           <input type="file" accept=".svg" style="display:none"
@@ -231,8 +239,7 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
 
       <button type="button"
         class="cesium-button cesium-satelliteBookmarks-addBtn"
-        data-bind="click: addBookmarkCommand">
-        Place Satellite
+        data-bind="click: addBookmarkCommand, text: formMode === 'tle' ? 'Track Satellite' : 'Place Satellite'">
       </button>
     </div>
 
@@ -282,6 +289,12 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
                          css: { 'cesium-satelliteBookmarks-ctrlBtn-active': $parent.tetherFlags[$index()] }">
               Tether
             </button>
+            <button type="button"
+              class="cesium-button cesium-satelliteBookmarks-ctrlBtn"
+              data-bind="click: function() { $parent.predictPassesCommand($index()); },
+                         visible: $parent.isKeplerian($index())">
+              Passes
+            </button>
           </div>
           <div class="cesium-satelliteBookmarks-orbitSliderRow"
             data-bind="visible: $parent.orbitFlags[$index()] && $parent.isKeplerian($index())">
@@ -292,6 +305,17 @@ function SatelliteBookmarks(container, scene, clock, dataSources) {
                          event: { input: function(data, e) { $parent.setOrbitSpeedCommand({index: $index(), value: e.target.value}); } }" />
             <span class="cesium-satelliteBookmarks-speedLabel"
               data-bind="text: $parent.orbitSpeedLabels[$index()]"></span>
+          </div>
+          <div class="cesium-satelliteBookmarks-passResults"
+            data-bind="visible: $parent.selectedPasses.length > 0">
+            <div class="cesium-satelliteBookmarks-passHeader">Next Passes</div>
+            <div data-bind="foreach: $parent.selectedPasses">
+              <div class="cesium-satelliteBookmarks-passRow">
+                <span class="cesium-satelliteBookmarks-passTime" data-bind="text: startLabel"></span>
+                <span class="cesium-satelliteBookmarks-passDetail"
+                  data-bind="text: maxEl ? duration + ' • ' + maxEl + ' max • ' + riseDir + '→' + setDir : duration"></span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

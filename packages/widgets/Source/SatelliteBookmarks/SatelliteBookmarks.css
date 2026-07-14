@@ -253,6 +253,35 @@
   text-align: center;
 }
 
+.cesium-satelliteBookmarks-tleInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #edffff;
+  font-size: 10px;
+  font-family: monospace;
+  outline: none;
+  resize: vertical;
+  margin-bottom: 6px;
+}
+
+.cesium-satelliteBookmarks-tleInput:focus {
+  border-color: #6af;
+}
+
+.cesium-satelliteBookmarks-tleInput::placeholder {
+  color: #667;
+}
+
+.cesium-satelliteBookmarks-tleError {
+  color: #f66;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
 .cesium-satelliteBookmarks-addBtn {
   width: 100%;
   padding: 6px 0;
@@ -414,6 +443,40 @@
 .cesium-satelliteBookmarks-removeBtn:hover {
   color: #f66;
   background: rgba(255, 100, 100, 0.1);
+}
+
+.cesium-satelliteBookmarks-passResults {
+  margin-top: 6px;
+  border-top: 1px solid #444;
+  padding-top: 6px;
+}
+
+.cesium-satelliteBookmarks-passHeader {
+  font-size: 10px;
+  font-weight: bold;
+  color: #9ab;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.cesium-satelliteBookmarks-passRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 11px;
+}
+
+.cesium-satelliteBookmarks-passTime {
+  color: #6af;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.cesium-satelliteBookmarks-passDetail {
+  color: #9ab;
+  text-align: right;
 }
 
 .cesium-satelliteBookmarks-empty {

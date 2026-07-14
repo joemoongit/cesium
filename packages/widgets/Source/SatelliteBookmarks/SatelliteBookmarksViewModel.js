@@ -10,6 +10,7 @@ import {
   ConstantProperty,
   CustomDataSource,
   HeadingPitchRange,
+  JulianDate,
   LabelStyle,
   Material,
   Math as CesiumMath,
@@ -57,21 +58,18 @@ function solveKepler(M, e) {
 
 const scratchIcrfToFixed = new Matrix3();
 const scratchFixedToIcrf = new Matrix3();
-const scratchEci = new Cartesian3();
 const scratchEciCam = new Cartesian3();
 
-function keplerianToEcef(bookmark, simTimeSec, clock) {
+function keplerianToEci(bookmark, simTimeSec) {
   const a = EARTH_RADIUS + bookmark.altitudeKm * 1000;
   const e = bookmark.eccentricity || 0;
   const inc = (bookmark.inclinationDeg || 0) * DEG;
   const raan = (bookmark.raanDeg || 0) * DEG;
   const argP = (bookmark.argPerigeeDeg || 0) * DEG;
   const M0 = (bookmark.meanAnomalyDeg || 0) * DEG;
-
   const n = Math.sqrt(EARTH_GM / (a * a * a));
   const M = M0 + n * simTimeSec;
   const E = solveKepler(M, e);
-
   const cosE = Math.cos(E);
   const sinE = Math.sin(E);
   const sqrt1me2 = Math.sqrt(1 - e * e);
@@ -79,40 +77,48 @@ function keplerianToEcef(bookmark, simTimeSec, clock) {
   const cosV = (cosE - e) / denom;
   const sinV = (sqrt1me2 * sinE) / denom;
   const r = a * denom;
-
   const xP = r * cosV;
   const yP = r * sinV;
-
   const cosO = Math.cos(raan);
   const sinO = Math.sin(raan);
   const cosI = Math.cos(inc);
   const sinI = Math.sin(inc);
   const cosW = Math.cos(argP);
   const sinW = Math.sin(argP);
-
-  scratchEci.x =
+  return new Cartesian3(
     (cosO * cosW - sinO * sinW * cosI) * xP +
-    (-cosO * sinW - sinO * cosW * cosI) * yP;
-  scratchEci.y =
+      (-cosO * sinW - sinO * cosW * cosI) * yP,
     (sinO * cosW + cosO * sinW * cosI) * xP +
-    (-sinO * sinW + cosO * cosW * cosI) * yP;
-  scratchEci.z = sinW * sinI * xP + cosW * sinI * yP;
+      (-sinO * sinW + cosO * cosW * cosI) * yP,
+    sinW * sinI * xP + cosW * sinI * yP,
+  );
+}
 
+function eciToEcef(eciPos, julianDate) {
   let icrfToFixed = Transforms.computeIcrfToFixedMatrix(
-    clock.currentTime,
+    julianDate,
     scratchIcrfToFixed,
   );
   if (!defined(icrfToFixed)) {
     icrfToFixed = Transforms.computeTemeToPseudoFixedMatrix(
-      clock.currentTime,
+      julianDate,
       scratchIcrfToFixed,
     );
   }
   if (!defined(icrfToFixed)) {
-    return Cartesian3.clone(scratchEci);
+    return Cartesian3.clone(eciPos);
   }
+  return Matrix3.multiplyByVector(icrfToFixed, eciPos, new Cartesian3());
+}
 
-  return Matrix3.multiplyByVector(icrfToFixed, scratchEci, new Cartesian3());
+function keplerianToEcef(bookmark, simTimeSec, clock) {
+  const eci = keplerianToEci(bookmark, simTimeSec);
+  return eciToEcef(eci, clock.currentTime);
+}
+
+function keplerianToEcefAtDate(bookmark, simTimeSec, julianDate) {
+  const eci = keplerianToEci(bookmark, simTimeSec);
+  return eciToEcef(eci, julianDate);
 }
 
 function cameraToEciLongitude(camera, clock) {
@@ -130,7 +136,6 @@ function cameraToEciLongitude(camera, clock) {
     const c = Cartographic.fromCartesian(camera.positionWC, Ellipsoid.WGS84);
     return defined(c) ? CesiumMath.toDegrees(c.longitude) : 0;
   }
-
   Matrix3.transpose(icrfToFixed, scratchFixedToIcrf);
   Matrix3.multiplyByVector(
     scratchFixedToIcrf,
@@ -139,6 +144,146 @@ function cameraToEciLongitude(camera, clock) {
   );
   return CesiumMath.toDegrees(Math.atan2(scratchEciCam.y, scratchEciCam.x));
 }
+
+function elevationAzimuth(observerLatDeg, observerLonDeg, satEcef) {
+  const obsEcef = Cartesian3.fromDegrees(observerLonDeg, observerLatDeg, 0);
+  const dx = satEcef.x - obsEcef.x;
+  const dy = satEcef.y - obsEcef.y;
+  const dz = satEcef.z - obsEcef.z;
+  const lat = observerLatDeg * DEG;
+  const lon = observerLonDeg * DEG;
+  const sinLat = Math.sin(lat);
+  const cosLat = Math.cos(lat);
+  const sinLon = Math.sin(lon);
+  const cosLon = Math.cos(lon);
+  const east = -sinLon * dx + cosLon * dy;
+  const north = -sinLat * cosLon * dx - sinLat * sinLon * dy + cosLat * dz;
+  const up = cosLat * cosLon * dx + cosLat * sinLon * dy + sinLat * dz;
+  const horiz = Math.sqrt(east * east + north * north);
+  let az = CesiumMath.toDegrees(Math.atan2(east, north));
+  if (az < 0) {
+    az += 360;
+  }
+  return {
+    elevation: CesiumMath.toDegrees(Math.atan2(up, horiz)),
+    azimuth: az,
+  };
+}
+
+function compassLabel(azDeg) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return dirs[Math.round(azDeg / 45) % 8];
+}
+
+function parseTle(text) {
+  const lines = text
+    .trim()
+    .split("\n")
+    .map(function (l) {
+      return l.trim();
+    })
+    .filter(function (l) {
+      return l.length > 0;
+    });
+  let name, line2;
+  if (lines.length >= 3 && !lines[0].startsWith("1 ")) {
+    name = lines[0];
+    line2 = lines[2];
+  } else if (lines.length >= 2) {
+    name = "Satellite";
+    line2 = lines[1];
+  } else {
+    return null;
+  }
+  if (!line2.startsWith("2 ")) {
+    return null;
+  }
+  const inc = parseFloat(line2.substring(8, 16));
+  const raan = parseFloat(line2.substring(17, 25));
+  const ecc = parseFloat(`0.${line2.substring(26, 33)}`);
+  const argP = parseFloat(line2.substring(34, 42));
+  const ma = parseFloat(line2.substring(43, 51));
+  const mm = parseFloat(line2.substring(52, 63));
+  if (isNaN(inc) || isNaN(mm) || mm <= 0) {
+    return null;
+  }
+  const nRadSec = (mm * TWO_PI) / 86400;
+  const a = Math.pow(EARTH_GM / (nRadSec * nRadSec), 1 / 3);
+  return {
+    name: name.replace(/^\d\s+/, ""),
+    altitudeKm: (a - EARTH_RADIUS) / 1000,
+    eccentricity: ecc,
+    inclinationDeg: inc,
+    raanDeg: raan,
+    argPerigeeDeg: argP,
+    meanAnomalyDeg: ma,
+  };
+}
+
+function predictPasses(
+  bookmark,
+  simTimeStart,
+  clockStartDate,
+  obsLatDeg,
+  obsLonDeg,
+  maxPasses,
+) {
+  const passes = [];
+  const step = 15;
+  const total = 24 * 3600;
+  let inPass = false;
+  let pass = null;
+  const futureDate = JulianDate.clone(clockStartDate);
+
+  for (let dt = 0; dt < total; dt += step) {
+    JulianDate.addSeconds(clockStartDate, dt, futureDate);
+    const satPos = keplerianToEcefAtDate(
+      bookmark,
+      simTimeStart + dt,
+      futureDate,
+    );
+    const ea = elevationAzimuth(obsLatDeg, obsLonDeg, satPos);
+
+    if (ea.elevation > 0) {
+      if (!inPass) {
+        inPass = true;
+        pass = {
+          startMin: Math.round(dt / 60),
+          maxEl: ea.elevation,
+          maxElAz: ea.azimuth,
+          riseAz: ea.azimuth,
+        };
+      }
+      if (ea.elevation > pass.maxEl) {
+        pass.maxEl = ea.elevation;
+        pass.maxElAz = ea.azimuth;
+      }
+    } else if (inPass) {
+      inPass = false;
+      pass.endMin = Math.round(dt / 60);
+      pass.durMin = pass.endMin - pass.startMin;
+      pass.setAz = ea.azimuth;
+      passes.push(pass);
+      if (passes.length >= (maxPasses || 5)) {
+        break;
+      }
+    }
+  }
+  return passes;
+}
+
+const TRACKER_SVG = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect x="26" y="26" width="12" height="16" rx="2" fill="#8CB4D8"/>
+  <rect x="6" y="30" width="20" height="4" fill="#4A90D9"/>
+  <rect x="6" y="36" width="20" height="4" fill="#4A90D9"/>
+  <rect x="38" y="30" width="20" height="4" fill="#4A90D9"/>
+  <rect x="38" y="36" width="20" height="4" fill="#4A90D9"/>
+  <path d="M24,22 Q32,10 40,22" fill="none" stroke="#FFD700" stroke-width="2"/>
+  <line x1="32" y1="26" x2="32" y2="16" stroke="#FFD700" stroke-width="1.5"/>
+  <circle cx="32" cy="14" r="2.5" fill="#FF6B6B"/>
+  <path d="M42,12 Q47,16 42,20" fill="none" stroke="#FF6B6B" stroke-width="1" opacity="0.6"/>
+  <path d="M45,9 Q52,16 45,23" fill="none" stroke="#FF6B6B" stroke-width="1" opacity="0.35"/>
+</svg>`;
 
 const PRESET_ICONS = [
   {
@@ -212,6 +357,10 @@ const PRESET_ICONS = [
       <rect x="29" y="56" width="6" height="3" fill="#888"/>
     </svg>`,
   },
+  {
+    name: "Tracker",
+    svg: TRACKER_SVG,
+  },
 ];
 
 function svgToDataUri(svgString) {
@@ -268,7 +417,7 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
   this.panelVisible = false;
   this.bookmarks = [];
   this.selectedIndex = -1;
-  this.useKeplerian = true;
+  this.formMode = "simple";
   this.newName = "";
   this.newLat = "0";
   this.newLon = "0";
@@ -278,18 +427,21 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
   this.newRaan = "0";
   this.newArgPerigee = "0";
   this.newMeanAnomaly = "0";
+  this.newTle = "";
+  this.tleError = "";
   this.selectedPresetIndex = 0;
   this.showAddForm = false;
   this.customSvgData = "";
   this.orbitFlags = [];
   this.orbitSpeedLabels = [];
   this.tetherFlags = [];
+  this.selectedPasses = [];
 
   knockout.track(this, [
     "panelVisible",
     "bookmarks",
     "selectedIndex",
-    "useKeplerian",
+    "formMode",
     "newName",
     "newLat",
     "newLon",
@@ -299,12 +451,15 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     "newRaan",
     "newArgPerigee",
     "newMeanAnomaly",
+    "newTle",
+    "tleError",
     "selectedPresetIndex",
     "showAddForm",
     "customSvgData",
     "orbitFlags",
     "orbitSpeedLabels",
     "tetherFlags",
+    "selectedPasses",
   ]);
 
   const that = this;
@@ -315,8 +470,8 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     that.panelVisible = !that.panelVisible;
   });
 
-  this._toggleModeCommand = createCommand(function () {
-    that.useKeplerian = !that.useKeplerian;
+  this._setFormModeCommand = createCommand(function (mode) {
+    that.formMode = mode;
   });
 
   this._toggleAddFormCommand = createCommand(function () {
@@ -342,7 +497,13 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
   });
 
   this._selectBookmarkCommand = createCommand(function (index) {
-    that.selectedIndex = that.selectedIndex === index ? -1 : index;
+    if (that.selectedIndex === index) {
+      that.selectedIndex = -1;
+      that.selectedPasses = [];
+    } else {
+      that.selectedIndex = index;
+      that.selectedPasses = [];
+    }
   });
 
   this._flyToBookmarkCommand = createCommand(function (index) {
@@ -361,6 +522,10 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     that._toggleTether(index);
   });
 
+  this._predictPassesCommand = createCommand(function (index) {
+    that._predictPasses(index);
+  });
+
   this._removeBookmarkCommand = createCommand(function (index) {
     that._stopOrbit(index);
     const updated = that.bookmarks.slice();
@@ -370,6 +535,7 @@ function SatelliteBookmarksViewModel(scene, clock, dataSources) {
     that._syncOrbitUI();
     if (that.selectedIndex === index) {
       that.selectedIndex = -1;
+      that.selectedPasses = [];
     } else if (that.selectedIndex > index) {
       that.selectedIndex--;
     }
@@ -387,6 +553,8 @@ SatelliteBookmarksViewModel.prototype._resetForm = function () {
   this.newInclination = "51.6";
   this.newArgPerigee = "0";
   this.newMeanAnomaly = "0";
+  this.newTle = "";
+  this.tleError = "";
   this.selectedPresetIndex = 0;
   this.customSvgData = "";
 
@@ -403,12 +571,10 @@ SatelliteBookmarksViewModel.prototype._resetForm = function () {
   }
 
   const eciLon = cameraToEciLongitude(this._scene.camera, this._clock);
-  this.newRaan = ((eciLon % 360) + 360).toFixed(1);
+  this.newRaan = (((eciLon % 360) + 360) % 360).toFixed(1);
 };
 
 SatelliteBookmarksViewModel.prototype._addBookmark = function () {
-  const altKm = parseFloat(this.newAltitudeKm) || DEFAULT_ALTITUDE_KM;
-
   let svgData;
   if (this.customSvgData && this.customSvgData.trim().length > 0) {
     svgData = this.customSvgData.trim();
@@ -418,7 +584,28 @@ SatelliteBookmarksViewModel.prototype._addBookmark = function () {
 
   let bookmark;
 
-  if (this.useKeplerian) {
+  if (this.formMode === "tle") {
+    const parsed = parseTle(this.newTle);
+    if (!parsed) {
+      this.tleError = "Invalid TLE format";
+      return;
+    }
+    this.tleError = "";
+    bookmark = {
+      mode: "keplerian",
+      name: this.newName.trim() || parsed.name,
+      altitudeKm: parsed.altitudeKm,
+      eccentricity: parsed.eccentricity,
+      inclinationDeg: parsed.inclinationDeg,
+      raanDeg: parsed.raanDeg,
+      argPerigeeDeg: parsed.argPerigeeDeg,
+      meanAnomalyDeg: parsed.meanAnomalyDeg,
+      orbitBand: getOrbitBand(parsed.altitudeKm),
+      svg: TRACKER_SVG,
+      presetIndex: -1,
+    };
+  } else if (this.formMode === "keplerian") {
+    const altKm = parseFloat(this.newAltitudeKm) || DEFAULT_ALTITUDE_KM;
     bookmark = {
       mode: "keplerian",
       name: this.newName.trim() || `Satellite ${this.bookmarks.length + 1}`,
@@ -437,6 +624,7 @@ SatelliteBookmarksViewModel.prototype._addBookmark = function () {
       presetIndex: this.customSvgData ? -1 : this.selectedPresetIndex,
     };
   } else {
+    const altKm = parseFloat(this.newAltitudeKm) || DEFAULT_ALTITUDE_KM;
     bookmark = {
       mode: "simple",
       name: this.newName.trim() || `Satellite ${this.bookmarks.length + 1}`,
@@ -479,7 +667,6 @@ SatelliteBookmarksViewModel.prototype._computeSatellitePosition = function (
   if (!defined(b)) {
     return Cartesian3.ZERO;
   }
-
   if (b.mode === "simple") {
     return Cartesian3.fromDegrees(b.lon, b.lat, b.altitudeKm * 1000);
   }
@@ -493,7 +680,6 @@ SatelliteBookmarksViewModel.prototype._computeGroundPosition = function (
   if (!defined(b)) {
     return Cartesian3.ZERO;
   }
-
   if (b.mode === "simple") {
     return Cartesian3.fromDegrees(b.lon, b.lat, 0);
   }
@@ -514,19 +700,16 @@ SatelliteBookmarksViewModel.prototype._flyToBookmark = function (index) {
   if (!defined(bookmark)) {
     return;
   }
-
   const satellitePosition = this._computeSatellitePosition(index);
   const altMeters = bookmark.altitudeKm * 1000;
   const viewDistance = Math.max(altMeters * 0.3, 50000);
-  const boundingSphere = new BoundingSphere(
-    satellitePosition,
-    viewDistance / 6,
+  this._scene.camera.flyToBoundingSphere(
+    new BoundingSphere(satellitePosition, viewDistance / 6),
+    {
+      offset: new HeadingPitchRange(0, -CesiumMath.PI_OVER_FOUR, viewDistance),
+      duration: 2,
+    },
   );
-
-  this._scene.camera.flyToBoundingSphere(boundingSphere, {
-    offset: new HeadingPitchRange(0, -CesiumMath.PI_OVER_FOUR, viewDistance),
-    duration: 2,
-  });
 };
 
 SatelliteBookmarksViewModel.prototype._toggleOrbit = function (index) {
@@ -534,7 +717,6 @@ SatelliteBookmarksViewModel.prototype._toggleOrbit = function (index) {
   if (!state) {
     return;
   }
-
   if (state.active) {
     this._stopOrbit(index);
   } else {
@@ -550,7 +732,6 @@ SatelliteBookmarksViewModel.prototype._stopOrbit = function (index) {
   if (!state || !state.active) {
     return;
   }
-
   state.accumulatedSeconds +=
     ((performance.now() - state.startTime) / 1000) * state.speed;
   state.active = false;
@@ -562,7 +743,6 @@ SatelliteBookmarksViewModel.prototype._setOrbitSpeed = function (index, value) {
   if (!state) {
     return;
   }
-
   if (state.active) {
     state.accumulatedSeconds +=
       ((performance.now() - state.startTime) / 1000) * state.speed;
@@ -577,7 +757,6 @@ SatelliteBookmarksViewModel.prototype._toggleTether = function (index) {
   if (!state) {
     return;
   }
-
   state.tetherVisible = !state.tetherVisible;
   const line = this._tetherLineRefs[index];
   if (defined(line)) {
@@ -585,6 +764,64 @@ SatelliteBookmarksViewModel.prototype._toggleTether = function (index) {
   }
   this._syncOrbitUI();
   this._scene.requestRender();
+};
+
+SatelliteBookmarksViewModel.prototype._predictPasses = function (index) {
+  const b = this.bookmarks[index];
+  if (!defined(b) || b.mode !== "keplerian") {
+    this.selectedPasses = [];
+    return;
+  }
+
+  const cartographic = Cartographic.fromCartesian(
+    this._scene.camera.positionWC,
+    Ellipsoid.WGS84,
+  );
+  if (!defined(cartographic)) {
+    this.selectedPasses = [];
+    return;
+  }
+
+  const obsLat = CesiumMath.toDegrees(cartographic.latitude);
+  const obsLon = CesiumMath.toDegrees(cartographic.longitude);
+  const simTime = this._getSimTime(index);
+
+  const raw = predictPasses(
+    b,
+    simTime,
+    this._clock.currentTime,
+    obsLat,
+    obsLon,
+    5,
+  );
+
+  if (raw.length === 0) {
+    this.selectedPasses = [
+      {
+        startLabel: "None",
+        duration: "No passes in next 24h",
+        maxEl: "",
+        maxElDir: "",
+        riseDir: "",
+        setDir: "",
+      },
+    ];
+    return;
+  }
+
+  this.selectedPasses = raw.map(function (p) {
+    return {
+      startLabel:
+        p.startMin < 60
+          ? `in ${p.startMin} min`
+          : `in ${(p.startMin / 60).toFixed(1)} hr`,
+      duration: `${p.durMin} min`,
+      maxEl: `${p.maxEl.toFixed(1)}°`,
+      maxElDir: compassLabel(p.maxElAz),
+      riseDir: compassLabel(p.riseAz),
+      setDir: compassLabel(p.setAz),
+    };
+  });
 };
 
 SatelliteBookmarksViewModel.prototype._syncOrbitUI = function () {
@@ -646,9 +883,8 @@ SatelliteBookmarksViewModel.prototype._syncEntities = function () {
   this._tetherLineRefs = [];
 
   const that = this;
-  const bookmarks = this.bookmarks;
-  for (let i = 0; i < bookmarks.length; i++) {
-    const b = bookmarks[i];
+  for (let i = 0; i < this.bookmarks.length; i++) {
+    const b = this.bookmarks[i];
     const idx = i;
     const state = this._orbitStates[i];
 
@@ -684,12 +920,12 @@ SatelliteBookmarksViewModel.prototype._syncEntities = function () {
       },
     });
 
-    const groundPos = this._computeGroundPosition(i);
-    const satPos = this._computeSatellitePosition(i);
     const tetherVisible = state ? state.tetherVisible : true;
-
     const line = this._tetherLines.add({
-      positions: [groundPos, satPos],
+      positions: [
+        this._computeGroundPosition(i),
+        this._computeSatellitePosition(i),
+      ],
       width: 1.5,
       material: Material.fromType("Color", {
         color: Color.fromCssColorString("rgba(106, 170, 255, 0.5)"),
@@ -795,9 +1031,9 @@ Object.defineProperties(SatelliteBookmarksViewModel.prototype, {
       return this._command;
     },
   },
-  toggleModeCommand: {
+  setFormModeCommand: {
     get: function () {
-      return this._toggleModeCommand;
+      return this._setFormModeCommand;
     },
   },
   toggleAddFormCommand: {
@@ -838,6 +1074,11 @@ Object.defineProperties(SatelliteBookmarksViewModel.prototype, {
   toggleTetherCommand: {
     get: function () {
       return this._toggleTetherCommand;
+    },
+  },
+  predictPassesCommand: {
+    get: function () {
+      return this._predictPassesCommand;
     },
   },
   removeBookmarkCommand: {
