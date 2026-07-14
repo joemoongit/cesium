@@ -7,6 +7,7 @@ import {
   Cartographic,
   Color,
   Ellipsoid,
+  JulianDate,
   Matrix3,
   PolylineCollection,
   Simon1994PlanetaryPositions,
@@ -118,6 +119,9 @@ function SunPosition(container, scene, clock) {
   this._scene = scene;
   this._clock = clock;
   this._terminatorPrimitive = undefined;
+  // Reference start-of-day used by the time-of-day slider; the slider offsets
+  // 0–24 hours from here.
+  this._dayStart = JulianDate.clone(clock.currentTime, new JulianDate());
 
   // Best-effort load of the high-accuracy Earth orientation data; until it is
   // available computeIcrfToFixedMatrix falls back to the TEME approximation.
@@ -175,6 +179,54 @@ function SunPosition(container, scene, clock) {
     }
   });
 
+  function applyClockChange() {
+    refreshReadouts();
+    if (terminatorActive()) {
+      drawTerminator();
+    }
+  }
+
+  // Scrub the clock to a given time of day (hours 0–24 from the reference day
+  // start) and refresh everything that depends on the time.
+  function setTimeOfDay(hours) {
+    clock.currentTime = JulianDate.addSeconds(
+      that._dayStart,
+      hours * 3600.0,
+      new JulianDate(),
+    );
+    applyClockChange();
+  }
+
+  // Find the time of day at which the Sun is directly over the currently focused
+  // longitude (subsolar longitude === focused longitude).
+  function jumpToLocalNoon() {
+    const focusLongitude =
+      scene.camera.positionCartographic?.longitude ?? 0.0;
+    let bestTime = that._dayStart;
+    let bestError = Number.POSITIVE_INFINITY;
+    const samples = 1440; // one per minute
+    for (let i = 0; i < samples; i++) {
+      const candidate = JulianDate.addSeconds(
+        that._dayStart,
+        (i / samples) * 86400.0,
+        new JulianDate(),
+      );
+      const subsolar = computeSubsolarPoint(candidate);
+      let error = Math.abs(subsolar.longitude - focusLongitude);
+      if (error > Math.PI) {
+        error = CesiumMath.TWO_PI - error;
+      }
+      if (error < bestError) {
+        bestError = error;
+        bestTime = candidate;
+      }
+    }
+    clock.currentTime = bestTime;
+    applyClockChange();
+  }
+
+  const localNoonCommand = createCommand(jumpToLocalNoon);
+
   this._viewModel = {
     tooltip: tooltip,
     panelVisible: panelVisible,
@@ -183,6 +235,7 @@ function SunPosition(container, scene, clock) {
     terminatorActive: terminatorActive,
     toggleCommand: toggleCommand,
     terminatorCommand: terminatorCommand,
+    localNoonCommand: localNoonCommand,
   };
 
   // Keep the read-outs (and terminator) in sync as the clock advances.
@@ -232,6 +285,31 @@ function SunPosition(container, scene, clock) {
   terminatorButton.textContent = "Day/Night Terminator";
   terminatorButton.setAttribute("data-bind", "click: terminatorCommand");
   panel.appendChild(terminatorButton);
+
+  // Time-of-day slider: scrubs the clock across a full 24-hour day.
+  const sliderRow = document.createElement("div");
+  sliderRow.className = "cesium-sunPosition-row";
+  const sliderLabel = document.createElement("span");
+  sliderLabel.textContent = "Time of day";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = "24";
+  slider.step = "0.1";
+  slider.className = "cesium-sunPosition-slider";
+  slider.addEventListener("input", function () {
+    setTimeOfDay(parseFloat(slider.value));
+  });
+  sliderRow.appendChild(sliderLabel);
+  sliderRow.appendChild(slider);
+  panel.appendChild(sliderRow);
+
+  const localNoonButton = document.createElement("button");
+  localNoonButton.type = "button";
+  localNoonButton.className = "cesium-button cesium-sunPosition-localNoonButton";
+  localNoonButton.textContent = "Local noon";
+  localNoonButton.setAttribute("data-bind", "click: localNoonCommand");
+  panel.appendChild(localNoonButton);
 
   wrapper.appendChild(panel);
   container.appendChild(wrapper);
