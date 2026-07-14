@@ -33,6 +33,7 @@ import HomeButton from "../HomeButton/HomeButton.js";
 import RotateButton from "../RotateButton/RotateButton.js";
 import MoonPhaseIndicator from "../MoonPhaseIndicator/MoonPhaseIndicator.js";
 import SunIndicator from "../SunIndicator/SunIndicator.js";
+import SatelliteBookmarks from "../SatelliteBookmarks/SatelliteBookmarks.js";
 import InfoBox from "../InfoBox/InfoBox.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
@@ -251,6 +252,10 @@ function enableVRUI(viewer, enabled) {
   const sunIndicator = viewer._sunIndicator;
   if (defined(sunIndicator)) {
     sunIndicator.container.style.visibility = visibility;
+  }
+  const satelliteBookmarks = viewer._satelliteBookmarks;
+  if (defined(satelliteBookmarks)) {
+    satelliteBookmarks.container.style.visibility = visibility;
   }
   if (defined(sceneModePicker)) {
     sceneModePicker.container.style.visibility = visibility;
@@ -675,6 +680,20 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     sunIndicator = new SunIndicator(toolbar, scene, clock);
   }
 
+  // SatelliteBookmarks
+  let satelliteBookmarks;
+  if (
+    !defined(options.satelliteBookmarks) ||
+    options.satelliteBookmarks !== false
+  ) {
+    satelliteBookmarks = new SatelliteBookmarks(
+      toolbar,
+      scene,
+      clock,
+      cesiumWidget.dataSources,
+    );
+  }
+
   if (defined(homeButton)) {
     eventHelper.add(homeButton.viewModel.command.beforeExecute, function () {
       if (defined(moonPhaseIndicator)) {
@@ -911,6 +930,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._rotateButton = rotateButton;
   this._moonPhaseIndicator = moonPhaseIndicator;
   this._sunIndicator = sunIndicator;
+  this._satelliteBookmarks = satelliteBookmarks;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1126,6 +1146,12 @@ Object.defineProperties(Viewer.prototype, {
   sunIndicator: {
     get: function () {
       return this._sunIndicator;
+    },
+  },
+
+  satelliteBookmarks: {
+    get: function () {
+      return this._satelliteBookmarks;
     },
   },
 
@@ -1807,6 +1833,9 @@ Viewer.prototype.destroy = function () {
   }
   if (defined(this._sunIndicator)) {
     this._sunIndicator = this._sunIndicator.destroy();
+  }
+  if (defined(this._satelliteBookmarks)) {
+    this._satelliteBookmarks = this._satelliteBookmarks.destroy();
   }
 
   if (defined(this._sceneModePicker)) {

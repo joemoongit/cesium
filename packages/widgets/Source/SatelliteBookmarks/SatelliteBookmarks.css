@@ -1,0 +1,397 @@
+.cesium-satelliteBookmarks-wrapper {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+
+.cesium-satelliteBookmarks-button {
+  display: inline-block;
+}
+
+.cesium-satelliteBookmarks-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  margin: 4px auto;
+}
+
+.cesium-satelliteBookmarks-panel {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  width: 260px;
+  max-height: 500px;
+  background: rgba(38, 38, 38, 0.95);
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  color: #edffff;
+  font-size: 13px;
+  font-family: sans-serif;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.01);
+  transform-origin: right top;
+  transition:
+    visibility 0s 0.2s,
+    opacity 0.2s ease-in,
+    transform 0.2s ease-in;
+  z-index: 1;
+}
+
+.cesium-satelliteBookmarks-panel-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+.cesium-satelliteBookmarks-header {
+  background: rgba(60, 80, 110, 0.8);
+  padding: 6px 12px;
+  font-weight: bold;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cesium-satelliteBookmarks-header-btn {
+  background: none;
+  border: 1px solid #6af;
+  color: #6af;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cesium-satelliteBookmarks-header-btn:hover {
+  background: #6af;
+  color: #1a1a2e;
+}
+
+.cesium-satelliteBookmarks-addForm {
+  padding: 10px 12px;
+  border-bottom: 1px solid #444;
+}
+
+.cesium-satelliteBookmarks-formRow {
+  margin-bottom: 8px;
+}
+
+.cesium-satelliteBookmarks-nameInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #edffff;
+  font-size: 12px;
+  outline: none;
+}
+
+.cesium-satelliteBookmarks-nameInput:focus {
+  border-color: #6af;
+}
+
+.cesium-satelliteBookmarks-nameInput::placeholder {
+  color: #889;
+}
+
+.cesium-satelliteBookmarks-coordRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cesium-satelliteBookmarks-coordField {
+  flex: 1;
+  min-width: 0;
+}
+
+.cesium-satelliteBookmarks-coordLabel {
+  display: block;
+  font-size: 10px;
+  color: #889;
+  margin-bottom: 2px;
+}
+
+.cesium-satelliteBookmarks-coordInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #edffff;
+  font-size: 11px;
+  outline: none;
+  min-width: 0;
+  -moz-appearance: textfield;
+}
+
+.cesium-satelliteBookmarks-coordInput::-webkit-inner-spin-button,
+.cesium-satelliteBookmarks-coordInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.cesium-satelliteBookmarks-coordInput:focus {
+  border-color: #6af;
+}
+
+.cesium-satelliteBookmarks-iconPicker {
+  margin-bottom: 8px;
+}
+
+.cesium-satelliteBookmarks-iconPicker-label {
+  font-size: 11px;
+  color: #889;
+  margin-bottom: 4px;
+}
+
+.cesium-satelliteBookmarks-iconPicker-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cesium-satelliteBookmarks-arrowBtn {
+  background: none;
+  border: 1px solid #555;
+  color: #edffff;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.cesium-satelliteBookmarks-arrowBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cesium-satelliteBookmarks-previewIcon {
+  width: 48px;
+  height: 48px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.cesium-satelliteBookmarks-previewIcon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cesium-satelliteBookmarks-presetName {
+  text-align: center;
+  font-size: 11px;
+  color: #9ab;
+  margin-top: 4px;
+}
+
+.cesium-satelliteBookmarks-uploadRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cesium-satelliteBookmarks-uploadBtn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.cesium-satelliteBookmarks-addBtn {
+  width: 100%;
+  padding: 6px 0;
+  font-size: 12px;
+  cursor: pointer;
+  background: #3a6a9f;
+  color: #edffff;
+  border: none;
+  border-radius: 4px;
+}
+
+.cesium-satelliteBookmarks-addBtn:hover {
+  background: #4a7aaf;
+}
+
+.cesium-satelliteBookmarks-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.cesium-satelliteBookmarks-itemWrap {
+  border-bottom: 1px solid rgba(68, 68, 68, 0.5);
+}
+
+.cesium-satelliteBookmarks-itemControls {
+  padding: 6px 12px 8px 12px;
+  background: rgba(30, 40, 55, 0.6);
+}
+
+.cesium-satelliteBookmarks-controlBtns {
+  display: flex;
+  gap: 4px;
+}
+
+.cesium-satelliteBookmarks-ctrlBtn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cesium-satelliteBookmarks-ctrlBtn-active {
+  background: #48b;
+  color: #fff;
+}
+
+.cesium-satelliteBookmarks-dirBtn {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+.cesium-satelliteBookmarks-orbitSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.cesium-satelliteBookmarks-sliderLabel {
+  font-size: 10px;
+  color: #889;
+  flex-shrink: 0;
+}
+
+.cesium-satelliteBookmarks-slider {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: #48b;
+  cursor: pointer;
+}
+
+.cesium-satelliteBookmarks-speedLabel {
+  font-size: 11px;
+  color: #edffff;
+  min-width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.cesium-satelliteBookmarks-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cesium-satelliteBookmarks-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cesium-satelliteBookmarks-item-selected {
+  background: rgba(74, 144, 217, 0.2);
+  border-left: 3px solid #6af;
+}
+
+.cesium-satelliteBookmarks-itemIcon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.cesium-satelliteBookmarks-itemIcon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cesium-satelliteBookmarks-itemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.cesium-satelliteBookmarks-itemName {
+  font-size: 12px;
+  font-weight: bold;
+  color: #edffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cesium-satelliteBookmarks-itemCoords {
+  font-size: 10px;
+  color: #889;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cesium-satelliteBookmarks-orbitBadge {
+  display: inline-block;
+  background: rgba(74, 144, 217, 0.3);
+  color: #6af;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.cesium-satelliteBookmarks-coordSep {
+  color: #556;
+}
+
+.cesium-satelliteBookmarks-removeBtn {
+  background: none;
+  border: none;
+  color: #889;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.cesium-satelliteBookmarks-removeBtn:hover {
+  color: #f66;
+  background: rgba(255, 100, 100, 0.1);
+}
+
+.cesium-satelliteBookmarks-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: #667;
+  font-size: 12px;
+}
