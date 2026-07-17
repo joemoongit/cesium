@@ -164,7 +164,7 @@ Waypoints.prototype._addEntry = function (view) {
 
   const entry = document.createElement("button");
   entry.type = "button";
-  entry.className = "cesium-waypoints-entry";
+  entry.className = "cesium-button cesium-waypoints-entry";
   entry.textContent = `View ${this._count}`;
   entry.addEventListener("click", function () {
     that._flyToView(view);
@@ -173,7 +173,7 @@ Waypoints.prototype._addEntry = function (view) {
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.className = "cesium-waypoints-delete";
+  deleteButton.className = "cesium-button cesium-waypoints-delete";
   deleteButton.title = "Delete";
   deleteButton.textContent = "Delete";
   deleteButton.addEventListener("click", function () {

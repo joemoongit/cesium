@@ -45,4 +45,12 @@
 .cesium-waypoints-entry {
   flex: 1;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cesium-waypoints-delete {
+  flex: 0 0 auto;
+  padding: 3px 8px;
 }
