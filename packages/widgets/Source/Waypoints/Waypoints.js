@@ -240,22 +240,37 @@ Waypoints.prototype._loadPersistedViews = function () {
 };
 
 /**
- * Fly the camera through every saved view in list order, pausing briefly at each.
+ * Fly the camera through every saved view in list order, landing on each view
+ * before moving on and pausing one second at each.
  * @private
  */
 Waypoints.prototype._playTour = function () {
   const views = this._views.slice();
   const that = this;
+  const PAUSE_MS = 1000; // pause one second on each view before the next flight
   let index = 0;
-  function next() {
+  function flyNext() {
     if (index >= views.length) {
       return;
     }
-    that._flyToView(views[index]);
+    const view = views[index];
     index += 1;
-    setTimeout(next, 1500);
+    // Chain on the flight-completion callback so each view is actually reached:
+    // a fixed timer can fire mid-flight and cut the animation short, leaving the
+    // camera between views. Waiting for `complete` lands each view, then pause.
+    that._camera.flyTo({
+      destination: view.destination,
+      orientation: {
+        heading: view.heading,
+        pitch: view.pitch,
+        roll: view.roll,
+      },
+      complete: function () {
+        setTimeout(flyNext, PAUSE_MS);
+      },
+    });
   }
-  next();
+  flyNext();
 };
 
 /**
