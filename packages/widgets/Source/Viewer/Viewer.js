@@ -31,6 +31,7 @@ import ClockViewModel from "../ClockViewModel.js";
 import FullscreenButton from "../FullscreenButton/FullscreenButton.js";
 import Geocoder from "../Geocoder/Geocoder.js";
 import HomeButton from "../HomeButton/HomeButton.js";
+import MarsIndicator from "../MarsIndicator/MarsIndicator.js";
 import InfoBox from "../InfoBox/InfoBox.js";
 import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.js";
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
@@ -247,6 +248,7 @@ function createNoFeaturesEntity() {
 function enableVRUI(viewer, enabled) {
   const geocoder = viewer._geocoder;
   const homeButton = viewer._homeButton;
+  const marsIndicator = viewer._marsIndicator;
   const sceneModePicker = viewer._sceneModePicker;
   const projectionPicker = viewer._projectionPicker;
   const baseLayerPicker = viewer._baseLayerPicker;
@@ -263,6 +265,9 @@ function enableVRUI(viewer, enabled) {
   }
   if (defined(homeButton)) {
     homeButton.container.style.visibility = visibility;
+  }
+  if (defined(marsIndicator)) {
+    marsIndicator.container.style.visibility = visibility;
   }
   if (defined(sceneModePicker)) {
     sceneModePicker.container.style.visibility = visibility;
@@ -314,6 +319,7 @@ function enableVRUI(viewer, enabled) {
  * @property {boolean} [vrButton=false] If set to true, the VRButton widget will be created.
  * @property {boolean|IonGeocodeProviderType|GeocoderService[]} [geocoder=IonGeocodeProviderType.DEFAULT] The geocoding service or services to use when searching with the Geocoder widget. If set to false, the Geocoder widget will not be created.
  * @property {boolean} [homeButton=true] If set to false, the HomeButton widget will not be created.
+ * @property {boolean} [marsIndicator=true] If set to false, the MarsIndicator widget will not be created.
  * @property {boolean} [infoBox=true] If set to false, the InfoBox widget will not be created.
  * @property {boolean} [sceneModePicker=true] If set to false, the SceneModePicker widget will not be created.
  * @property {boolean} [selectionIndicator=true] If set to false, the SelectionIndicator widget will not be created.
@@ -378,6 +384,7 @@ function enableVRUI(viewer, enabled) {
  * @see CesiumWidget
  * @see FullscreenButton
  * @see HomeButton
+ * @see MarsIndicator
  * @see SceneModePicker
  * @see Timeline
  * @see viewerDragDropMixin
@@ -648,6 +655,18 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     );
   }
 
+  // MarsIndicator
+  let marsIndicator;
+  if (!defined(options.marsIndicator) || options.marsIndicator !== false) {
+    marsIndicator = new MarsIndicator(toolbar, scene, clock);
+    if (defined(homeButton)) {
+      // Flying home while the camera is locked onto Mars would fight the tracker.
+      eventHelper.add(homeButton.viewModel.command.beforeExecute, function () {
+        marsIndicator.viewModel.stopTracking();
+      });
+    }
+  }
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
@@ -870,6 +889,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._destroyClockViewModel = destroyClockViewModel;
   this._toolbar = toolbar;
   this._homeButton = homeButton;
+  this._marsIndicator = marsIndicator;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1055,6 +1075,19 @@ Object.defineProperties(Viewer.prototype, {
   homeButton: {
     get: function () {
       return this._homeButton;
+    },
+  },
+
+  /**
+   * Gets the MarsIndicator.
+   * @memberof Viewer.prototype
+   *
+   * @type {MarsIndicator}
+   * @readonly
+   */
+  marsIndicator: {
+    get: function () {
+      return this._marsIndicator;
     },
   },
 
@@ -1727,6 +1760,10 @@ Viewer.prototype.destroy = function () {
 
   if (defined(this._homeButton)) {
     this._homeButton = this._homeButton.destroy();
+  }
+
+  if (defined(this._marsIndicator)) {
+    this._marsIndicator = this._marsIndicator.destroy();
   }
 
   if (defined(this._sceneModePicker)) {
