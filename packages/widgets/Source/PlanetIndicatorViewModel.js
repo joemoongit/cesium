@@ -17,6 +17,14 @@ import SceneFarPlane from "./SceneFarPlane.js";
 const scratchFixed = new Cartesian3();
 const scratchTrackFixed = new Cartesian3();
 const scratchBodyFixed = new Cartesian3();
+const scratchSatelliteFixed = new Cartesian3();
+const scratchSatelliteBodyFixed = new Cartesian3();
+const scratchApproach = new Cartesian3();
+const scratchApproachSatellite = new Cartesian3();
+const scratchApproachPlanet = new Cartesian3();
+const scratchApproachSun = new Cartesian3();
+const scratchApproachAxis = new Cartesian3();
+
 const scratchDirection = new Cartesian3();
 const scratchUp = new Cartesian3();
 const scratchEast = new Cartesian3();
@@ -83,11 +91,36 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
   this._createMaterial = options.createMaterial;
   this._maximumEarthDistance = options.maximumEarthDistance;
   this._approachRange = APPROACH_RANGE_SCALE * options.radii.x;
+  this._satellites = options.satellites ?? [];
 
   this._tickListener = undefined;
   this._trackingListener = undefined;
   this._bodyPrimitive = undefined;
   this._lastBodyPosition = undefined;
+  // One slot per moon, so each keeps its own visibility, primitive and cached position.
+  this._satellitePrimitives = this._satellites.map(function () {
+    return undefined;
+  });
+  this._lastSatellitePositions = this._satellites.map(function () {
+    return undefined;
+  });
+  this._satelliteShown = this._satellites.map(function () {
+    return false;
+  });
+
+  /**
+   * Gets the names of the planet's moons, in selection order.
+   * @type {string[]}
+   */
+  this.satelliteNames = this._satellites.map(function (satellite) {
+    return satellite.name;
+  });
+
+  /**
+   * Gets whether this planet has any moons configured.
+   * @type {boolean}
+   */
+  this.hasSatellites = this._satellites.length > 0;
 
   /**
    * Gets the distance from the Earth to the planet, in astronomical units.
@@ -166,12 +199,77 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
   this.tracking = false;
 
   /**
+   * Gets the index of the currently selected moon.
+   * @type {number}
+   * @default 0
+   */
+  this.selectedSatelliteIndex = 0;
+
+  /**
+   * Gets the name of the currently selected moon.
+   * @type {string}
+   */
+  this.selectedSatelliteName = this.hasSatellites
+    ? this._satellites[0].name
+    : "";
+
+  /**
+   * Gets the label for the button that flies to the selected moon.
+   * @type {string}
+   */
+  this.flyToSatelliteLabel = this.hasSatellites
+    ? `Fly to ${this._satellites[0].name}`
+    : "";
+
+  /**
+   * Gets the label for the button that shows or hides the selected moon.
+   * @type {string}
+   */
+  this.satelliteToggleLabel = this.hasSatellites
+    ? `Show ${this._satellites[0].name}`
+    : "";
+
+  /**
+   * Gets the selected moon's orbital radius about its planet, in kilometers.
+   * @type {string}
+   */
+  this.satelliteOrbitRadius = "---";
+
+  /**
+   * Gets the selected moon's orbital period, in hours.
+   * @type {string}
+   */
+  this.satellitePeriod = "---";
+
+  /**
+   * Gets the selected moon's mean diameter, in kilometers.
+   * @type {string}
+   */
+  this.satelliteDiameter = "---";
+
+  /**
+   * Gets whether the currently selected moon is drawn in the scene. Each moon keeps its
+   * own setting, so this tracks whichever one is selected.
+   * @type {boolean}
+   * @default false
+   */
+  this.satelliteVisible = false;
+
+  /**
    * Gets or sets the tooltip.
    * @type {string}
    */
   this.tooltip = options.name;
 
   knockout.track(this, [
+    "selectedSatelliteIndex",
+    "selectedSatelliteName",
+    "flyToSatelliteLabel",
+    "satelliteToggleLabel",
+    "satelliteOrbitRadius",
+    "satellitePeriod",
+    "satelliteDiameter",
+    "satelliteVisible",
     "distanceAU",
     "distanceKm",
     "lightTime",
@@ -215,11 +313,54 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
     that._syncUpdating();
   });
 
+  this._selectSatelliteCommand = createCommand(function (index) {
+    that.selectSatellite(index);
+  });
+
+  this._flyToSatelliteCommand = createCommand(function () {
+    that._flyToSatellite();
+  });
+
+  this._toggleSatelliteBodyCommand = createCommand(function () {
+    const index = that.selectedSatelliteIndex;
+    if (that._satelliteShown[index]) {
+      that._hideSatelliteBody(index);
+    } else {
+      that._showSatelliteBody(index);
+    }
+    that._syncUpdating();
+  });
+
   this._returnToEarthCommand = createCommand(function () {
     that.stopTracking();
     that._scene.camera.flyHome(3);
   });
 }
+
+/**
+ * Selects one of the planet's moons. This only changes which moon the panel describes
+ * and which one is drawn; the camera is deliberately left exactly where it is. Only the
+ * fly-to commands move the view.
+ *
+ * @param {number} index The index into {@link PlanetIndicatorViewModel#satelliteNames}.
+ */
+PlanetIndicatorViewModel.prototype.selectSatellite = function (index) {
+  if (index < 0 || index >= this._satellites.length) {
+    return;
+  }
+  if (index === this.selectedSatelliteIndex) {
+    return;
+  }
+
+  this.selectedSatelliteIndex = index;
+  const satellite = this._satellites[index];
+  this.selectedSatelliteName = satellite.name;
+  this.flyToSatelliteLabel = `Fly to ${satellite.name}`;
+  this.satelliteToggleLabel = `Show ${satellite.name}`;
+  // Each moon keeps its own visibility, so whichever moons are drawn stay drawn.
+  this.satelliteVisible = this._satelliteShown[index];
+  this._syncUpdating();
+};
 
 Object.defineProperties(PlanetIndicatorViewModel.prototype, {
   /**
@@ -293,6 +434,42 @@ Object.defineProperties(PlanetIndicatorViewModel.prototype, {
       return this._returnToEarthCommand;
     },
   },
+
+  /**
+   * Gets the command that selects a moon by index.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  selectSatelliteCommand: {
+    get: function () {
+      return this._selectSatelliteCommand;
+    },
+  },
+
+  /**
+   * Gets the command that flies the camera to the selected moon.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  flyToSatelliteCommand: {
+    get: function () {
+      return this._flyToSatelliteCommand;
+    },
+  },
+
+  /**
+   * Gets the command that toggles drawing the selected moon in the scene.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  toggleSatelliteBodyCommand: {
+    get: function () {
+      return this._toggleSatelliteBodyCommand;
+    },
+  },
 });
 
 /**
@@ -328,45 +505,181 @@ PlanetIndicatorViewModel.prototype._flyToPlanet = function () {
   }
   this._syncUpdating();
 
+  this._flyToTarget(planetPosition, this._approachRange, undefined);
+};
+
+/**
+ * Flies to the currently selected moon, keeping the planet drawn behind it for scale.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._flyToSatellite = function () {
+  const satellite = this._satellites[this.selectedSatelliteIndex];
+  if (!defined(satellite)) {
+    return;
+  }
+
+  const satellitePosition = PlanetaryEphemeris.computeSatelliteFixedPosition(
+    this._planet,
+    satellite,
+    this._clock.currentTime,
+    scratchSatelliteFixed,
+  );
+  if (!defined(satellitePosition)) {
+    return;
+  }
+
+  if (!this._satelliteShown[this.selectedSatelliteIndex]) {
+    this._showSatelliteBody(this.selectedSatelliteIndex);
+  }
+  // The moons are tiny and unlit rock; without the planet filling the background
+  // there is no sense of where you actually are.
+  if (!this.bodyVisible) {
+    this._showBody();
+  }
+  this._syncUpdating();
+
+  this._flyToTarget(
+    satellitePosition,
+    APPROACH_RANGE_SCALE * satellite.radii.x,
+    satellite,
+    this._computeSatelliteApproachDirection(satellite, scratchApproach),
+  );
+};
+
+/**
+ * Picks where to view a moon from.
+ *
+ * <p>Approaching straight down the Sun line the way the planets do puts the planet
+ * itself off-screen most of the time -- the moon is only ever a few thousand kilometres
+ * from a body tens of degrees wide, and that body ends up behind the camera. So the
+ * approach starts on the far side of the moon from the planet, which frames the moon
+ * against the planet, and is then tilted toward the Sun by up to
+ * {@link APPROACH_TILT} to pick up illumination. The tilt is clamped so it never
+ * swings past the Sun.</p>
+ *
+ * @param {object} satellite The moon being viewed.
+ * @param {Cartesian3} result The object onto which to store the unit direction.
+ * @returns {Cartesian3|undefined} The modified result parameter, or <code>undefined</code>
+ *          if the ephemeris is unavailable.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._computeSatelliteApproachDirection =
+  function (satellite, result) {
+    const date = this._clock.currentTime;
+    const satellitePosition = PlanetaryEphemeris.computeSatelliteFixedPosition(
+      this._planet,
+      satellite,
+      date,
+      scratchApproachSatellite,
+    );
+    const planetPosition = PlanetaryEphemeris.computeFixedPosition(
+      this._planet,
+      date,
+      scratchApproachPlanet,
+    );
+    if (!defined(satellitePosition) || !defined(planetPosition)) {
+      return undefined;
+    }
+
+    // Start on the far side of the moon from the planet, so the planet sits behind it.
+    Cartesian3.subtract(satellitePosition, planetPosition, result);
+    Cartesian3.normalize(result, result);
+
+    const sunDirection = PlanetaryEphemeris.computeSunFixedDirection(
+      date,
+      scratchApproachSun,
+    );
+    if (!defined(sunDirection)) {
+      return result;
+    }
+
+    const tilt = Math.min(
+      APPROACH_TILT,
+      Cartesian3.angleBetween(result, sunDirection),
+    );
+    if (tilt < CesiumMath.EPSILON6) {
+      return result;
+    }
+
+    const axis = Cartesian3.cross(result, sunDirection, scratchApproachAxis);
+    if (Cartesian3.magnitude(axis) < CesiumMath.EPSILON6) {
+      return result;
+    }
+    Cartesian3.normalize(axis, axis);
+
+    return Matrix3.multiplyByVector(
+      Matrix3.fromQuaternion(
+        Quaternion.fromAxisAngle(axis, tilt, scratchFlyQuaternion),
+        scratchFlyRotation,
+      ),
+      result,
+      result,
+    );
+  };
+
+/**
+ * Flies the camera to a body, arriving on its sunlit side.
+ *
+ * @param {Cartesian3} targetPosition The body's position in the Earth-fixed frame.
+ * @param {number} approachRange How far from the body's center to park, in meters.
+ * @param {object} [satellite] The moon to lock onto once there, or <code>undefined</code>
+ *        to lock onto the planet.
+ * @param {Cartesian3} [presetDirection] An already-chosen unit direction from the body
+ *        toward the camera. When omitted the sunward approach used for planets applies.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._flyToTarget = function (
+  targetPosition,
+  approachRange,
+  satellite,
+  presetDirection,
+) {
   // The body is lit by the Sun alone with no ambient term, so approaching from an
   // arbitrary heading can park the camera over the night side and show nothing but a
   // black disc. Come in from the sunward side instead, tilted just far enough to keep
   // the terminator in frame so the planet reads as a sphere rather than a flat circle.
   const approachDirection = Cartesian3.clone(
-    PlanetaryEphemeris.computeSunFixedDirection(
-      this._clock.currentTime,
-      scratchFlyDirection,
-    ) ?? Cartesian3.normalize(planetPosition, scratchFlyDirection),
+    presetDirection ??
+      PlanetaryEphemeris.computeSunFixedDirection(
+        this._clock.currentTime,
+        scratchFlyDirection,
+      ) ??
+      Cartesian3.normalize(targetPosition, scratchFlyDirection),
     scratchFlyDirection,
   );
 
-  let axis = Cartesian3.cross(
-    approachDirection,
-    Cartesian3.UNIT_Z,
-    scratchFlyAxis,
-  );
-  if (Cartesian3.magnitude(axis) < CesiumMath.EPSILON6) {
-    axis = Cartesian3.cross(
+  if (!defined(presetDirection)) {
+    let axis = Cartesian3.cross(
       approachDirection,
-      Cartesian3.UNIT_X,
+      Cartesian3.UNIT_Z,
       scratchFlyAxis,
     );
+    if (Cartesian3.magnitude(axis) < CesiumMath.EPSILON6) {
+      axis = Cartesian3.cross(
+        approachDirection,
+        Cartesian3.UNIT_X,
+        scratchFlyAxis,
+      );
+    }
+    Cartesian3.normalize(axis, axis);
+    Matrix3.multiplyByVector(
+      Matrix3.fromQuaternion(
+        Quaternion.fromAxisAngle(axis, APPROACH_TILT, scratchFlyQuaternion),
+        scratchFlyRotation,
+      ),
+      approachDirection,
+      approachDirection,
+    );
   }
-  Cartesian3.normalize(axis, axis);
-  Matrix3.multiplyByVector(
-    Matrix3.fromQuaternion(
-      Quaternion.fromAxisAngle(axis, APPROACH_TILT, scratchFlyQuaternion),
-      scratchFlyRotation,
-    ),
-    approachDirection,
-    approachDirection,
-  );
 
   const destination = Cartesian3.add(
-    planetPosition,
+    targetPosition,
     Cartesian3.multiplyByScalar(
       approachDirection,
-      this._approachRange,
+      approachRange,
       scratchFlyOffset,
     ),
     scratchFlyDestination,
@@ -392,26 +705,35 @@ PlanetIndicatorViewModel.prototype._flyToPlanet = function () {
     },
     duration: 4,
     complete: function () {
-      that.startTracking();
+      that.startTracking(satellite);
     },
   });
 };
 
 /**
- * Locks the camera onto the planet so that it stays centered as the ephemeris advances.
+ * Locks the camera onto a body so that it stays centered as the ephemeris advances.
+ *
+ * @param {object} [satellite] The moon to lock onto. Defaults to the planet itself.
  */
-PlanetIndicatorViewModel.prototype.startTracking = function () {
+PlanetIndicatorViewModel.prototype.startTracking = function (satellite) {
   this.stopTracking();
 
   const that = this;
   const scene = this._scene;
 
   this._trackingListener = scene.postUpdate.addEventListener(function () {
-    const planetPosition = that._computeFixedPosition(scratchTrackFixed);
-    if (!defined(planetPosition)) {
+    const position = defined(satellite)
+      ? PlanetaryEphemeris.computeSatelliteFixedPosition(
+          that._planet,
+          satellite,
+          that._clock.currentTime,
+          scratchTrackFixed,
+        )
+      : that._computeFixedPosition(scratchTrackFixed);
+    if (!defined(position)) {
       return;
     }
-    Matrix4.fromTranslation(planetPosition, scratchTrackTransform);
+    Matrix4.fromTranslation(position, scratchTrackTransform);
     scene.camera.lookAtTransform(scratchTrackTransform);
   });
   this.tracking = true;
@@ -448,10 +770,8 @@ PlanetIndicatorViewModel.prototype._showBody = function () {
   scene.primitives.add(primitive);
   this._bodyPrimitive = primitive;
 
-  // The default far plane sits well inside the planet's orbit, so nothing would be drawn.
-  SceneFarPlane.claim(scene, this, this._maximumEarthDistance);
-
   this.bodyVisible = true;
+  this._syncFarPlane();
   this._updateBody();
 };
 
@@ -464,9 +784,114 @@ PlanetIndicatorViewModel.prototype._hideBody = function () {
     this._bodyPrimitive = undefined;
     this._scene.requestRender();
   }
-  SceneFarPlane.release(this._scene, this);
   this._lastBodyPosition = undefined;
   this.bodyVisible = false;
+  this._syncFarPlane();
+};
+
+/**
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._showSatelliteBody = function (index) {
+  const satellite = this._satellites[index];
+  if (!defined(satellite) || defined(this._satellitePrimitives[index])) {
+    return;
+  }
+
+  const scene = this._scene;
+  const primitive = new EllipsoidPrimitive({
+    radii: satellite.radii,
+    material: satellite.createMaterial(),
+    onlySunLighting: true,
+  });
+  primitive.material.translucent = false;
+
+  scene.primitives.add(primitive);
+  this._satellitePrimitives[index] = primitive;
+  this._satelliteShown[index] = true;
+  if (index === this.selectedSatelliteIndex) {
+    this.satelliteVisible = true;
+  }
+
+  this._syncFarPlane();
+  this._updateSatelliteBody();
+};
+
+/**
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._hideSatelliteBody = function (index) {
+  if (defined(this._satellitePrimitives[index])) {
+    this._scene.primitives.remove(this._satellitePrimitives[index]);
+    this._satellitePrimitives[index] = undefined;
+    this._scene.requestRender();
+  }
+  this._lastSatellitePositions[index] = undefined;
+  this._satelliteShown[index] = false;
+  if (index === this.selectedSatelliteIndex) {
+    this.satelliteVisible = false;
+  }
+  this._syncFarPlane();
+};
+
+/**
+ * @returns {boolean} whether any moon is currently drawn.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._anySatelliteShown = function () {
+  return this._satelliteShown.some(function (shown) {
+    return shown;
+  });
+};
+
+/**
+ * Holds the camera's far plane open while anything of ours is drawn, and lets go once
+ * nothing is. The default far plane sits well inside the planet's orbit, so without
+ * this nothing would be rendered at all.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._syncFarPlane = function () {
+  if (this.bodyVisible || this._anySatelliteShown()) {
+    SceneFarPlane.claim(this._scene, this, this._maximumEarthDistance);
+  } else {
+    SceneFarPlane.release(this._scene, this);
+  }
+};
+
+/**
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._updateSatelliteBody = function () {
+  for (let i = 0; i < this._satellitePrimitives.length; ++i) {
+    const primitive = this._satellitePrimitives[i];
+    if (!defined(primitive)) {
+      continue;
+    }
+
+    const position = PlanetaryEphemeris.computeSatelliteFixedPosition(
+      this._planet,
+      this._satellites[i],
+      this._clock.currentTime,
+      scratchSatelliteBodyFixed,
+    );
+
+    primitive.show = defined(position);
+    if (!defined(position)) {
+      continue;
+    }
+
+    const last = this._lastSatellitePositions[i];
+    const moved =
+      !defined(last) ||
+      !Cartesian3.equalsEpsilon(position, last, CesiumMath.EPSILON7);
+    if (moved) {
+      this._lastSatellitePositions[i] = Cartesian3.clone(position, last);
+      Matrix4.fromTranslation(position, primitive.modelMatrix);
+      this._scene.requestRender();
+    }
+  }
 };
 
 /**
@@ -511,7 +936,10 @@ PlanetIndicatorViewModel.prototype._updateBody = function () {
  */
 PlanetIndicatorViewModel.prototype._syncUpdating = function () {
   const needsUpdate =
-    this.panelVisible || this.labelVisible || this.bodyVisible;
+    this.panelVisible ||
+    this.labelVisible ||
+    this.bodyVisible ||
+    this._anySatelliteShown();
 
   if (needsUpdate) {
     if (!defined(this._tickListener)) {
@@ -597,8 +1025,32 @@ PlanetIndicatorViewModel.prototype._update = function () {
   this.azimuth = `${azimuthDegrees.toFixed(1)}°`;
   this.azimuthDir = PlanetaryEphemeris.compassLabel(azimuthDegrees);
 
+  this._updateSatelliteReadout();
   this._updateBody();
+  this._updateSatelliteBody();
   this._updateLabelOverlay(planetPosition);
+};
+
+/**
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._updateSatelliteReadout = function () {
+  const satellite = this._satellites[this.selectedSatelliteIndex];
+  if (!defined(satellite)) {
+    return;
+  }
+
+  this.satelliteOrbitRadius = Math.round(
+    satellite.semiMajorAxis / 1000.0,
+  ).toLocaleString();
+  this.satellitePeriod = (satellite.periodDays * 24.0).toFixed(1);
+  // The moons are lumpy enough that a mean diameter is the only honest single number.
+  this.satelliteDiameter = (
+    ((satellite.radii.x + satellite.radii.y + satellite.radii.z) /
+      3.0 /
+      1000.0) *
+    2.0
+  ).toFixed(1);
 };
 
 /**
@@ -646,6 +1098,9 @@ PlanetIndicatorViewModel.prototype._updateLabelOverlay = function (
  */
 PlanetIndicatorViewModel.prototype.destroy = function () {
   this.stopTracking();
+  for (let i = 0; i < this._satellites.length; ++i) {
+    this._hideSatelliteBody(i);
+  }
   this._hideBody();
   this._hideLabelOverlay();
   this.panelVisible = false;

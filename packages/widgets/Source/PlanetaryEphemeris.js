@@ -12,6 +12,11 @@ const scratchSunPosition = new Cartesian3();
 const scratchHeliocentric = new Cartesian3();
 const scratchInertial = new Cartesian3();
 const scratchIcrfToFixed = new Matrix3();
+const scratchPole = new Cartesian3();
+const scratchNode = new Cartesian3();
+const scratchBinormal = new Cartesian3();
+const scratchInPlane = new Cartesian3();
+const scratchSatelliteOffset = new Cartesian3();
 
 const AU_METERS = 149597870700;
 // Obliquity of the J2000 ecliptic, in radians.
@@ -64,6 +69,15 @@ PlanetaryEphemeris.MARS = {
     meanLongitude: 19140.30268499,
     longitudeOfPerihelion: 0.44441088,
     longitudeOfNode: -0.29257343,
+  },
+  // Direction of the north pole of rotation in the J2000 equatorial frame, from the
+  // IAU Working Group report on cartographic coordinates and rotational elements.
+  // Rates are per Julian century. This fixes the plane the moons orbit in.
+  pole: {
+    rightAscension: 317.68143,
+    rightAscensionRate: -0.1061,
+    declination: 52.8865,
+    declinationRate: -0.0609,
   },
 };
 
@@ -321,6 +335,155 @@ PlanetaryEphemeris.computeSunFixedDirection = function (date, result) {
   );
   Matrix3.multiplyByVector(icrfToFixed, scratchSunPosition, result);
   return Cartesian3.normalize(result, result);
+};
+
+/**
+ * Computes a moon's offset from the center of its planet, in the J2000 equatorial frame.
+ *
+ * <p>The orbit is modelled as a circle of the published semi-major axis lying in the
+ * planet's equatorial plane, advancing at the published sidereal period. The orbital
+ * radius, period and plane orientation are therefore accurate, but two simplifications
+ * apply: the small orbital eccentricity and the degree-or-so inclination to the planet's
+ * equator are ignored, and the phase along the orbit comes from a mean longitude at
+ * epoch rather than a fitted ephemeris, so where the moon sits in its orbit is only
+ * approximate. That is well inside what a fly-to widget needs, but it is not suitable
+ * for predicting events such as transits or eclipses.</p>
+ *
+ * @param {object} pole The planet's pole definition, as on {@link PlanetaryEphemeris.MARS}.
+ * @param {object} satellite The moon's orbit definition.
+ * @param {JulianDate} date The time at which to evaluate the orbit.
+ * @param {Cartesian3} result The object onto which to store the result, in meters.
+ * @returns {Cartesian3} The modified result parameter.
+ */
+PlanetaryEphemeris.computeSatelliteOffset = function (
+  pole,
+  satellite,
+  date,
+  result,
+) {
+  const days = JulianDate.totalDays(date) - 2451545.0;
+  const centuries = days / 36525.0;
+
+  const rightAscension = CesiumMath.toRadians(
+    pole.rightAscension + pole.rightAscensionRate * centuries,
+  );
+  const declination = CesiumMath.toRadians(
+    pole.declination + pole.declinationRate * centuries,
+  );
+
+  // The planet's spin axis, and the ascending node of its equator on the J2000
+  // equator. Both are already unit length, and together with their cross product
+  // they frame the plane the moon travels in.
+  const cosDeclination = Math.cos(declination);
+  scratchPole.x = cosDeclination * Math.cos(rightAscension);
+  scratchPole.y = cosDeclination * Math.sin(rightAscension);
+  scratchPole.z = Math.sin(declination);
+
+  scratchNode.x = -Math.sin(rightAscension);
+  scratchNode.y = Math.cos(rightAscension);
+  scratchNode.z = 0.0;
+
+  Cartesian3.cross(scratchPole, scratchNode, scratchBinormal);
+
+  const angle = CesiumMath.toRadians(
+    satellite.epochMeanLongitude + (360.0 * days) / satellite.periodDays,
+  );
+
+  Cartesian3.multiplyByScalar(
+    scratchNode,
+    satellite.semiMajorAxis * Math.cos(angle),
+    result,
+  );
+  Cartesian3.multiplyByScalar(
+    scratchBinormal,
+    satellite.semiMajorAxis * Math.sin(angle),
+    scratchInPlane,
+  );
+  return Cartesian3.add(result, scratchInPlane, result);
+};
+
+/**
+ * Computes the planet's north pole of rotation as a unit vector in the Earth-fixed
+ * frame. Useful as a stable reference axis when framing shots around a planet.
+ *
+ * @param {object} planet One of the element tables on this namespace.
+ * @param {JulianDate} date The time at which to evaluate the direction.
+ * @param {Cartesian3} result The object onto which to store the result.
+ * @returns {Cartesian3|undefined} The modified result parameter, or <code>undefined</code>
+ *          if the inertial-to-fixed transform is unavailable.
+ */
+PlanetaryEphemeris.computePoleFixedDirection = function (planet, date, result) {
+  const icrfToFixed = PlanetaryEphemeris.computeIcrfToFixedMatrix(
+    date,
+    scratchIcrfToFixed,
+  );
+  if (!defined(icrfToFixed)) {
+    return undefined;
+  }
+
+  const pole = planet.pole;
+  const centuries = (JulianDate.totalDays(date) - 2451545.0) / 36525.0;
+  const rightAscension = CesiumMath.toRadians(
+    pole.rightAscension + pole.rightAscensionRate * centuries,
+  );
+  const declination = CesiumMath.toRadians(
+    pole.declination + pole.declinationRate * centuries,
+  );
+
+  const cosDeclination = Math.cos(declination);
+  scratchPole.x = cosDeclination * Math.cos(rightAscension);
+  scratchPole.y = cosDeclination * Math.sin(rightAscension);
+  scratchPole.z = Math.sin(declination);
+
+  return Matrix3.multiplyByVector(icrfToFixed, scratchPole, result);
+};
+
+/**
+ * Computes the position of a moon relative to the Earth, in the Earth-centered,
+ * Earth-fixed frame.
+ *
+ * @param {object} planet One of the element tables on this namespace.
+ * @param {object} satellite The moon's orbit definition.
+ * @param {JulianDate} date The time at which to evaluate the ephemeris.
+ * @param {Cartesian3} result The object onto which to store the result, in meters.
+ * @returns {Cartesian3|undefined} The modified result parameter, or <code>undefined</code>
+ *          if the inertial-to-fixed transform is unavailable.
+ */
+PlanetaryEphemeris.computeSatelliteFixedPosition = function (
+  planet,
+  satellite,
+  date,
+  result,
+) {
+  const icrfToFixed = PlanetaryEphemeris.computeIcrfToFixedMatrix(
+    date,
+    scratchIcrfToFixed,
+  );
+  if (!defined(icrfToFixed)) {
+    return undefined;
+  }
+
+  const sunPosition =
+    Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(
+      date,
+      scratchSunPosition,
+    );
+  PlanetaryEphemeris.computeHeliocentricPosition(
+    planet,
+    date,
+    scratchHeliocentric,
+  );
+  Cartesian3.add(scratchHeliocentric, sunPosition, scratchInertial);
+
+  PlanetaryEphemeris.computeSatelliteOffset(
+    planet.pole,
+    satellite,
+    date,
+    scratchSatelliteOffset,
+  );
+  Cartesian3.add(scratchInertial, scratchSatelliteOffset, scratchInertial);
+
+  return Matrix3.multiplyByVector(icrfToFixed, scratchInertial, result);
 };
 
 export default PlanetaryEphemeris;

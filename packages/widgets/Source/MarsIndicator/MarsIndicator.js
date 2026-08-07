@@ -141,6 +141,44 @@ cesiumSvgPath: { path: _svgPath, width: 100, height: 100 }",
           Show Mars
         </button>
       </div>
+      <div data-bind="visible: hasSatellites">
+        <div class="cesium-marsIndicator-separator"></div>
+        <div class="cesium-marsIndicator-moons-title">Moons</div>
+        <div class="cesium-marsIndicator-moon-tabs">
+          <button type="button" class="cesium-button cesium-marsIndicator-moon-tab"
+            data-bind="text: satelliteNames[0],
+                       click: function () { $data.selectSatelliteCommand(0); },
+                       css: { 'cesium-marsIndicator-moon-tab-active': selectedSatelliteIndex === 0 }">
+          </button>
+          <button type="button" class="cesium-button cesium-marsIndicator-moon-tab"
+            data-bind="text: satelliteNames[1],
+                       click: function () { $data.selectSatelliteCommand(1); },
+                       css: { 'cesium-marsIndicator-moon-tab-active': selectedSatelliteIndex === 1 }">
+          </button>
+        </div>
+        <div class="cesium-marsIndicator-detail">
+          <span>Orbit radius</span>
+          <span><span data-bind="text: satelliteOrbitRadius"></span> km</span>
+        </div>
+        <div class="cesium-marsIndicator-detail">
+          <span>Period</span>
+          <span><span data-bind="text: satellitePeriod"></span> h</span>
+        </div>
+        <div class="cesium-marsIndicator-detail">
+          <span>Mean diameter</span>
+          <span><span data-bind="text: satelliteDiameter"></span> km</span>
+        </div>
+        <button type="button" class="cesium-button cesium-marsIndicator-fly-btn cesium-marsIndicator-moon-fly-btn"
+          data-bind="text: flyToSatelliteLabel, click: flyToSatelliteCommand">
+        </button>
+        <div class="cesium-marsIndicator-actions">
+          <button type="button" class="cesium-button cesium-marsIndicator-action-btn"
+            data-bind="text: satelliteToggleLabel,
+                       click: toggleSatelliteBodyCommand,
+                       css: { 'cesium-marsIndicator-action-btn-active': satelliteVisible }">
+          </button>
+        </div>
+      </div>
       <button type="button" class="cesium-button cesium-marsIndicator-action-btn cesium-marsIndicator-return-btn"
         data-bind="visible: tracking, click: returnToEarthCommand">
         Return to Earth
