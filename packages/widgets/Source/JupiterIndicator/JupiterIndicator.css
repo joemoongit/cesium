@@ -1,0 +1,150 @@
+.cesium-jupiterIndicator-wrapper {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+
+.cesium-jupiterIndicator-panel {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  width: 210px;
+  background: rgba(38, 38, 38, 0.9);
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  color: #edffff;
+  font-size: 13px;
+  font-family: sans-serif;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.01);
+  transform-origin: right top;
+  transition:
+    visibility 0s 0.2s,
+    opacity 0.2s ease-in,
+    transform 0.2s ease-in;
+  z-index: 1;
+}
+
+.cesium-jupiterIndicator-panel-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+.cesium-jupiterIndicator-header {
+  background: rgba(110, 80, 40, 0.85);
+  padding: 6px 12px;
+  font-weight: bold;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cesium-jupiterIndicator-viz {
+  display: flex;
+  justify-content: center;
+  padding: 8px 10px 4px 10px;
+}
+
+.cesium-jupiterIndicator-horizon {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.cesium-jupiterIndicator-info {
+  padding: 4px 12px 10px 12px;
+}
+
+.cesium-jupiterIndicator-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #bcd;
+}
+
+.cesium-jupiterIndicator-dir {
+  color: #d9a441;
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.cesium-jupiterIndicator-separator {
+  border-top: 1px solid #444;
+  margin: 6px 0;
+}
+
+.cesium-jupiterIndicator-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #446;
+  flex-shrink: 0;
+}
+
+.cesium-jupiterIndicator-dot-up {
+  background: #d9a441;
+}
+
+.cesium-jupiterIndicator-fly-btn {
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  font-size: 12px;
+  font-weight: bold;
+  background: #b07a3c;
+  color: #fff;
+  cursor: pointer;
+}
+
+.cesium-jupiterIndicator-fly-btn:hover:not(:disabled) {
+  background: #d9a441;
+}
+
+.cesium-jupiterIndicator-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.cesium-jupiterIndicator-action-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cesium-jupiterIndicator-action-btn-active {
+  background: #48b;
+  color: #fff;
+}
+
+.cesium-jupiterIndicator-return-btn {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.cesium-jupiterIndicator-label {
+  position: absolute;
+  color: #d9a441;
+  font-family: sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+}
