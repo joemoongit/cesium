@@ -161,6 +161,33 @@
   margin-top: 6px;
 }
 
+.cesium-marsIndicator-moon-show-btn {
+  flex: 1.4;
+}
+
+.cesium-marsIndicator-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px 0;
+}
+
+.cesium-marsIndicator-slider {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: #c1440e;
+  cursor: pointer;
+}
+
+.cesium-marsIndicator-slider-label {
+  font-size: 11px;
+  color: #edffff;
+  min-width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .cesium-marsIndicator-return-btn {
   display: block;
   width: 100%;

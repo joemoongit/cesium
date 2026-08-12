@@ -278,13 +278,25 @@ PlanetaryEphemeris.computeIcrfToFixedMatrix = function (date, result) {
  * Computes the position of a planet relative to the Earth, in the Earth-centered,
  * Earth-fixed frame.
  *
+ * <p><code>planetDate</code> exists so a caller can walk the planet around its orbit
+ * without moving the Earth or the Sun: the Sun vector and the inertial-to-fixed rotation
+ * are always evaluated at <code>date</code>, and only the planet's heliocentric position
+ * uses <code>planetDate</code>.</p>
+ *
  * @param {object} planet One of the element tables on this namespace.
- * @param {JulianDate} date The time at which to evaluate the ephemeris.
+ * @param {JulianDate} date The time at which to evaluate the Earth, Sun and frame.
  * @param {Cartesian3} result The object onto which to store the result, in meters.
+ * @param {JulianDate} [planetDate=date] The time at which to evaluate the planet's
+ *        position along its own orbit.
  * @returns {Cartesian3|undefined} The modified result parameter, or <code>undefined</code>
  *          if the inertial-to-fixed transform is unavailable.
  */
-PlanetaryEphemeris.computeFixedPosition = function (planet, date, result) {
+PlanetaryEphemeris.computeFixedPosition = function (
+  planet,
+  date,
+  result,
+  planetDate,
+) {
   const icrfToFixed = PlanetaryEphemeris.computeIcrfToFixedMatrix(
     date,
     scratchIcrfToFixed,
@@ -302,7 +314,7 @@ PlanetaryEphemeris.computeFixedPosition = function (planet, date, result) {
     );
   PlanetaryEphemeris.computeHeliocentricPosition(
     planet,
-    date,
+    planetDate ?? date,
     scratchHeliocentric,
   );
   Cartesian3.add(scratchHeliocentric, sunPosition, scratchInertial);
@@ -442,10 +454,18 @@ PlanetaryEphemeris.computePoleFixedDirection = function (planet, date, result) {
  * Computes the position of a moon relative to the Earth, in the Earth-centered,
  * Earth-fixed frame.
  *
+ * <p><code>orbitDate</code> exists so a caller can spin a moon around its orbit without
+ * dragging the planet along with it: the planet's position and the inertial-to-fixed
+ * rotation are always evaluated at <code>date</code>, and only the moon's phase uses
+ * <code>orbitDate</code>.</p>
+ *
  * @param {object} planet One of the element tables on this namespace.
  * @param {object} satellite The moon's orbit definition.
- * @param {JulianDate} date The time at which to evaluate the ephemeris.
+ * @param {JulianDate} date The time at which to evaluate the planet and the frame.
  * @param {Cartesian3} result The object onto which to store the result, in meters.
+ * @param {JulianDate} [orbitDate=date] The time at which to evaluate the moon's phase.
+ * @param {JulianDate} [planetDate=date] The time at which to evaluate the planet's
+ *        position along its own orbit, so moons ride along with an animated planet.
  * @returns {Cartesian3|undefined} The modified result parameter, or <code>undefined</code>
  *          if the inertial-to-fixed transform is unavailable.
  */
@@ -454,6 +474,8 @@ PlanetaryEphemeris.computeSatelliteFixedPosition = function (
   satellite,
   date,
   result,
+  orbitDate,
+  planetDate,
 ) {
   const icrfToFixed = PlanetaryEphemeris.computeIcrfToFixedMatrix(
     date,
@@ -470,7 +492,7 @@ PlanetaryEphemeris.computeSatelliteFixedPosition = function (
     );
   PlanetaryEphemeris.computeHeliocentricPosition(
     planet,
-    date,
+    planetDate ?? date,
     scratchHeliocentric,
   );
   Cartesian3.add(scratchHeliocentric, sunPosition, scratchInertial);
@@ -478,7 +500,7 @@ PlanetaryEphemeris.computeSatelliteFixedPosition = function (
   PlanetaryEphemeris.computeSatelliteOffset(
     planet.pole,
     satellite,
-    date,
+    orbitDate ?? date,
     scratchSatelliteOffset,
   );
   Cartesian3.add(scratchInertial, scratchSatelliteOffset, scratchInertial);

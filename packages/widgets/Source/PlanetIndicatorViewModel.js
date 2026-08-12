@@ -4,6 +4,8 @@ import {
   defined,
   DeveloperError,
   EllipsoidPrimitive,
+  getTimestamp,
+  JulianDate,
   Math as CesiumMath,
   Matrix3,
   Matrix4,
@@ -13,6 +15,7 @@ import knockout from "./ThirdParty/knockout.js";
 import createCommand from "./createCommand.js";
 import PlanetaryEphemeris from "./PlanetaryEphemeris.js";
 import SceneFarPlane from "./SceneFarPlane.js";
+import SceneZoomLimits from "./SceneZoomLimits.js";
 
 const scratchFixed = new Cartesian3();
 const scratchTrackFixed = new Cartesian3();
@@ -47,6 +50,23 @@ const scratchFlyRotation = new Matrix3();
 const APPROACH_RANGE_SCALE = 2.5;
 // How far off the Sun line to approach, trading a sliver of the disc for visible relief.
 const APPROACH_TILT = CesiumMath.toRadians(25.0);
+// Real orbits are far too slow to watch -- Phobos takes 7.6 hours, Deimos 30, Mars 687
+// days -- so the animation advances simulated time by a multiplier. One multiplier and
+// one shared clock drive the planet and every moon, which is what keeps their relative
+// motion astronomically correct: at any speed Phobos still laps Mars 2154 times per
+// Martian year, because all three read the same simulated instant.
+const DEFAULT_ORBIT_SPEED = 2000;
+const MAXIMUM_ORBIT_SPEED = 10000;
+// While the camera is locked onto a body, ScreenSpaceCameraController swaps in
+// Ellipsoid.UNIT_SPHERE, so it measures zoom as the distance to that body's centre and
+// clamps it against minimumZoomDistance -- which defaults to one metre. One drag is
+// then enough to end up inside the planet. Bound both ends to the body's own radius.
+const TRACK_MINIMUM_ZOOM_SCALE = 1.05;
+const TRACK_MAXIMUM_ZOOM_SCALE = 5000.0;
+
+const scratchOrbitDate = new JulianDate();
+const scratchPlanetOrbitDate = new JulianDate();
+const scratchLabelFixed = new Cartesian3();
 
 /**
  * The shared view model behind the individual planet widgets. It owns everything that
@@ -106,6 +126,40 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
   });
   this._satelliteShown = this._satellites.map(function () {
     return false;
+  });
+
+  this._satelliteLabeled = this._satellites.map(function () {
+    return false;
+  });
+  // A per-body switch for whether it follows the shared orbit clock below, plus the
+  // simulated time it was left at when switched off, so it holds its last position
+  // instead of snapping back to where the real ephemeris puts it.
+  this._satelliteOrbitActive = this._satellites.map(function () {
+    return false;
+  });
+  this._satelliteOrbitFrozen = this._satellites.map(function () {
+    return 0;
+  });
+  this._planetOrbitFrozen = 0;
+
+  // One simulated-time offset shared by the planet and every moon. It advances whenever
+  // at least one of them is animating, so bodies that are running always agree on what
+  // time it is and their relative positions stay physically consistent.
+  this._orbitSpeed = DEFAULT_ORBIT_SPEED;
+  this._orbitAccumulatedSeconds = 0;
+  this._orbitStartTimestamp = 0;
+  this._orbitRunning = false;
+
+  // One label element per moon, cloned off the planet's so it picks up the same styling.
+  this._satelliteLabelOverlays = this._satellites.map(function () {
+    if (!defined(labelOverlay) || !defined(labelOverlay.parentElement)) {
+      return undefined;
+    }
+    const element = labelOverlay.cloneNode(false);
+    element.textContent = "";
+    element.style.display = "none";
+    labelOverlay.parentElement.appendChild(element);
+    return element;
   });
 
   /**
@@ -256,6 +310,54 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
   this.satelliteVisible = false;
 
   /**
+   * Gets whether the planet is being animated around its orbit of the Sun.
+   * @type {boolean}
+   * @default false
+   */
+  this.planetOrbitActive = false;
+
+  /**
+   * Gets the largest orbit multiplier the slider offers.
+   * @type {number}
+   */
+  this.orbitSpeedMaximum = MAXIMUM_ORBIT_SPEED;
+
+  /**
+   * Gets whether the planet or any moon is currently animating.
+   * @type {boolean}
+   * @default false
+   */
+  this.anyOrbitActive = false;
+
+  /**
+   * Gets whether the selected moon's on-screen label is shown. Each moon keeps its own
+   * setting, so this tracks whichever one is selected.
+   * @type {boolean}
+   * @default false
+   */
+  this.satelliteLabelVisible = false;
+
+  /**
+   * Gets whether the selected moon is being animated around its orbit. Each moon keeps
+   * its own setting, so this tracks whichever one is selected.
+   * @type {boolean}
+   * @default false
+   */
+  this.orbitActive = false;
+
+  /**
+   * Gets or sets the orbit animation multiplier, as a string for the range input.
+   * @type {string}
+   */
+  this.orbitSpeedValue = `${DEFAULT_ORBIT_SPEED}`;
+
+  /**
+   * Gets the orbit animation multiplier, formatted for display.
+   * @type {string}
+   */
+  this.orbitSpeedLabel = `${DEFAULT_ORBIT_SPEED.toLocaleString()}x`;
+
+  /**
    * Gets or sets the tooltip.
    * @type {string}
    */
@@ -270,6 +372,12 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
     "satellitePeriod",
     "satelliteDiameter",
     "satelliteVisible",
+    "planetOrbitActive",
+    "anyOrbitActive",
+    "satelliteLabelVisible",
+    "orbitActive",
+    "orbitSpeedValue",
+    "orbitSpeedLabel",
     "distanceAU",
     "distanceKm",
     "lightTime",
@@ -331,6 +439,53 @@ function PlanetIndicatorViewModel(scene, clock, labelOverlay, options) {
     that._syncUpdating();
   });
 
+  this._togglePlanetOrbitCommand = createCommand(function () {
+    if (that.planetOrbitActive) {
+      // Hold the position it reached rather than jumping back to the real ephemeris.
+      that._planetOrbitFrozen = that._orbitOffsetSeconds();
+      that.planetOrbitActive = false;
+    } else {
+      that.planetOrbitActive = true;
+    }
+    that._syncOrbitClock();
+    that._syncUpdating();
+  });
+
+  this._toggleSatelliteLabelCommand = createCommand(function () {
+    const index = that.selectedSatelliteIndex;
+    that._satelliteLabeled[index] = !that._satelliteLabeled[index];
+    that.satelliteLabelVisible = that._satelliteLabeled[index];
+    if (!that.satelliteLabelVisible) {
+      that._hideSatelliteLabel(index);
+    }
+    that._syncUpdating();
+  });
+
+  this._toggleOrbitCommand = createCommand(function () {
+    const index = that.selectedSatelliteIndex;
+    if (index < 0 || index >= that._satelliteOrbitActive.length) {
+      return;
+    }
+    if (that._satelliteOrbitActive[index]) {
+      // Hold the position it reached rather than jumping back to the real ephemeris.
+      that._satelliteOrbitFrozen[index] = that._orbitOffsetSeconds();
+      that._satelliteOrbitActive[index] = false;
+    } else {
+      that._satelliteOrbitActive[index] = true;
+    }
+    that.orbitActive = that._satelliteOrbitActive[index];
+    that._syncOrbitClock();
+    that._syncUpdating();
+  });
+
+  // Banking the elapsed simulated time before the multiplier changes keeps everything
+  // from jumping when the slider moves.
+  knockout.getObservable(this, "orbitSpeedValue").subscribe(function (value) {
+    that._bankOrbitTime();
+    that._orbitSpeed = parseInt(value, 10) || 1;
+    that.orbitSpeedLabel = `${that._orbitSpeed.toLocaleString()}x`;
+  });
+
   this._returnToEarthCommand = createCommand(function () {
     that.stopTracking();
     that._scene.camera.flyHome(3);
@@ -359,6 +514,8 @@ PlanetIndicatorViewModel.prototype.selectSatellite = function (index) {
   this.satelliteToggleLabel = `Show ${satellite.name}`;
   // Each moon keeps its own visibility, so whichever moons are drawn stay drawn.
   this.satelliteVisible = this._satelliteShown[index];
+  this.satelliteLabelVisible = this._satelliteLabeled[index];
+  this.orbitActive = this._satelliteOrbitActive[index];
   this._syncUpdating();
 };
 
@@ -470,6 +627,42 @@ Object.defineProperties(PlanetIndicatorViewModel.prototype, {
       return this._toggleSatelliteBodyCommand;
     },
   },
+
+  /**
+   * Gets the command that starts and stops the orbit animation.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  toggleOrbitCommand: {
+    get: function () {
+      return this._toggleOrbitCommand;
+    },
+  },
+
+  /**
+   * Gets the command that toggles the selected moon's on-screen label.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  toggleSatelliteLabelCommand: {
+    get: function () {
+      return this._toggleSatelliteLabelCommand;
+    },
+  },
+
+  /**
+   * Gets the command that starts and stops the planet's orbit around the Sun.
+   * @memberof PlanetIndicatorViewModel.prototype
+   * @type {Command}
+   * @readonly
+   */
+  togglePlanetOrbitCommand: {
+    get: function () {
+      return this._togglePlanetOrbitCommand;
+    },
+  },
 });
 
 /**
@@ -482,11 +675,129 @@ Object.defineProperties(PlanetIndicatorViewModel.prototype, {
  *
  * @private
  */
+PlanetIndicatorViewModel.prototype._orbitOffsetSeconds = function () {
+  let offset = this._orbitAccumulatedSeconds;
+  if (this._orbitRunning) {
+    offset +=
+      ((getTimestamp() - this._orbitStartTimestamp) / 1000.0) *
+      this._orbitSpeed;
+  }
+  return offset;
+};
+
+/**
+ * Banks the simulated time accrued so far, so the multiplier or the running state can
+ * change without the bodies jumping.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._bankOrbitTime = function () {
+  this._orbitAccumulatedSeconds = this._orbitOffsetSeconds();
+  this._orbitStartTimestamp = getTimestamp();
+};
+
+/**
+ * Starts or stops the shared orbit clock to match whether anything is animating.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._syncOrbitClock = function () {
+  const running =
+    this.planetOrbitActive ||
+    this._satelliteOrbitActive.some(function (active) {
+      return active;
+    });
+  this.anyOrbitActive = running;
+  if (running !== this._orbitRunning) {
+    this._bankOrbitTime();
+    this._orbitRunning = running;
+  }
+};
+
+/**
+ * The shared simulated time the animating bodies are evaluated at. It runs ahead of the
+ * scene clock by the accumulated orbit time, so bodies can be spun around without
+ * disturbing the clock, the Earth or the Sun.
+ *
+ * @returns {JulianDate} The simulated time.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._timeAtOffset = function (offset, result) {
+  if (offset === 0) {
+    return this._clock.currentTime;
+  }
+  return JulianDate.addSeconds(this._clock.currentTime, offset, result);
+};
+
+/**
+ * The time the planet's own orbital position is evaluated at. While animating it tracks
+ * the shared orbit clock; once switched off it stays at the simulated time it reached.
+ *
+ * @returns {JulianDate} The time to evaluate the planet's heliocentric position at.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._planetTime = function () {
+  const offset = this.planetOrbitActive
+    ? this._orbitOffsetSeconds()
+    : this._planetOrbitFrozen;
+  return this._timeAtOffset(offset, scratchPlanetOrbitDate);
+};
+
+/**
+ * The time a moon's orbital phase is evaluated at. While animating it tracks the shared
+ * orbit clock; once switched off it stays at the simulated time it reached.
+ *
+ * @param {number} index The moon's index.
+ * @returns {JulianDate} The time to evaluate the moon's phase at.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._satelliteTime = function (index) {
+  const offset = this._satelliteOrbitActive[index]
+    ? this._orbitOffsetSeconds()
+    : this._satelliteOrbitFrozen[index];
+  return this._timeAtOffset(offset, scratchOrbitDate);
+};
+
+/**
+ * Computes a moon's position in the Earth-fixed frame, honouring the orbit animation.
+ *
+ * @param {object} satellite The moon to locate.
+ * @param {Cartesian3} result The object onto which to store the result.
+ * @returns {Cartesian3|undefined} The modified result parameter.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._computeSatellitePosition = function (
+  index,
+  result,
+) {
+  const satellite = this._satellites[index];
+  if (!defined(satellite)) {
+    return undefined;
+  }
+  // The planet and the frame stay on the scene clock; only the moon's phase is animated.
+  return PlanetaryEphemeris.computeSatelliteFixedPosition(
+    this._planet,
+    satellite,
+    this._clock.currentTime,
+    result,
+    this._satelliteTime(index),
+    this._planetTime(),
+  );
+};
+
+/**
+ * @private
+ */
 PlanetIndicatorViewModel.prototype._computeFixedPosition = function (result) {
   return PlanetaryEphemeris.computeFixedPosition(
     this._planet,
     this._clock.currentTime,
     result,
+    this._planetTime(),
   );
 };
 
@@ -519,10 +830,8 @@ PlanetIndicatorViewModel.prototype._flyToSatellite = function () {
     return;
   }
 
-  const satellitePosition = PlanetaryEphemeris.computeSatelliteFixedPosition(
-    this._planet,
-    satellite,
-    this._clock.currentTime,
+  const satellitePosition = this._computeSatellitePosition(
+    this.selectedSatelliteIndex,
     scratchSatelliteFixed,
   );
   if (!defined(satellitePosition)) {
@@ -542,8 +851,11 @@ PlanetIndicatorViewModel.prototype._flyToSatellite = function () {
   this._flyToTarget(
     satellitePosition,
     APPROACH_RANGE_SCALE * satellite.radii.x,
-    satellite,
-    this._computeSatelliteApproachDirection(satellite, scratchApproach),
+    this.selectedSatelliteIndex,
+    this._computeSatelliteApproachDirection(
+      this.selectedSatelliteIndex,
+      scratchApproach,
+    ),
   );
 };
 
@@ -566,19 +878,13 @@ PlanetIndicatorViewModel.prototype._flyToSatellite = function () {
  * @private
  */
 PlanetIndicatorViewModel.prototype._computeSatelliteApproachDirection =
-  function (satellite, result) {
+  function (index, result) {
     const date = this._clock.currentTime;
-    const satellitePosition = PlanetaryEphemeris.computeSatelliteFixedPosition(
-      this._planet,
-      satellite,
-      date,
+    const satellitePosition = this._computeSatellitePosition(
+      index,
       scratchApproachSatellite,
     );
-    const planetPosition = PlanetaryEphemeris.computeFixedPosition(
-      this._planet,
-      date,
-      scratchApproachPlanet,
-    );
+    const planetPosition = this._computeFixedPosition(scratchApproachPlanet);
     if (!defined(satellitePosition) || !defined(planetPosition)) {
       return undefined;
     }
@@ -624,8 +930,8 @@ PlanetIndicatorViewModel.prototype._computeSatelliteApproachDirection =
  *
  * @param {Cartesian3} targetPosition The body's position in the Earth-fixed frame.
  * @param {number} approachRange How far from the body's center to park, in meters.
- * @param {object} [satellite] The moon to lock onto once there, or <code>undefined</code>
- *        to lock onto the planet.
+ * @param {number} [satelliteIndex] The moon to lock onto once there, or
+ *        <code>undefined</code> to lock onto the planet.
  * @param {Cartesian3} [presetDirection] An already-chosen unit direction from the body
  *        toward the camera. When omitted the sunward approach used for planets applies.
  *
@@ -634,7 +940,7 @@ PlanetIndicatorViewModel.prototype._computeSatelliteApproachDirection =
 PlanetIndicatorViewModel.prototype._flyToTarget = function (
   targetPosition,
   approachRange,
-  satellite,
+  satelliteIndex,
   presetDirection,
 ) {
   // The body is lit by the Sun alone with no ambient term, so approaching from an
@@ -705,7 +1011,7 @@ PlanetIndicatorViewModel.prototype._flyToTarget = function (
     },
     duration: 4,
     complete: function () {
-      that.startTracking(satellite);
+      that.startTracking(satelliteIndex);
     },
   });
 };
@@ -713,22 +1019,26 @@ PlanetIndicatorViewModel.prototype._flyToTarget = function (
 /**
  * Locks the camera onto a body so that it stays centered as the ephemeris advances.
  *
- * @param {object} [satellite] The moon to lock onto. Defaults to the planet itself.
+ * @param {number} [satelliteIndex] The moon to lock onto. Defaults to the planet itself.
  */
-PlanetIndicatorViewModel.prototype.startTracking = function (satellite) {
+PlanetIndicatorViewModel.prototype.startTracking = function (satelliteIndex) {
   this.stopTracking();
+
+  const satellite = this._satellites[satelliteIndex];
+  const radius = defined(satellite) ? satellite.radii.x : this._radii.x;
+  SceneZoomLimits.claim(
+    this._scene,
+    this,
+    radius * TRACK_MINIMUM_ZOOM_SCALE,
+    radius * TRACK_MAXIMUM_ZOOM_SCALE,
+  );
 
   const that = this;
   const scene = this._scene;
 
   this._trackingListener = scene.postUpdate.addEventListener(function () {
-    const position = defined(satellite)
-      ? PlanetaryEphemeris.computeSatelliteFixedPosition(
-          that._planet,
-          satellite,
-          that._clock.currentTime,
-          scratchTrackFixed,
-        )
+    const position = defined(satelliteIndex)
+      ? that._computeSatellitePosition(satelliteIndex, scratchTrackFixed)
       : that._computeFixedPosition(scratchTrackFixed);
     if (!defined(position)) {
       return;
@@ -748,6 +1058,9 @@ PlanetIndicatorViewModel.prototype.stopTracking = function () {
     this._trackingListener = undefined;
     this._scene.camera.lookAtTransform(Matrix4.IDENTITY);
   }
+
+  SceneZoomLimits.release(this._scene, this);
+
   this.tracking = false;
 };
 
@@ -846,6 +1159,68 @@ PlanetIndicatorViewModel.prototype._anySatelliteShown = function () {
 };
 
 /**
+ * @returns {boolean} whether any moon's label is currently shown.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._anySatelliteLabeled = function () {
+  return this._satelliteLabeled.some(function (labeled) {
+    return labeled;
+  });
+};
+
+/**
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._hideSatelliteLabel = function (index) {
+  const overlay = this._satelliteLabelOverlays[index];
+  if (defined(overlay)) {
+    overlay.style.display = "none";
+  }
+};
+
+/**
+ * Positions each labelled moon's on-screen label.
+ *
+ * @private
+ */
+PlanetIndicatorViewModel.prototype._updateSatelliteLabels = function () {
+  for (let i = 0; i < this._satellites.length; ++i) {
+    const overlay = this._satelliteLabelOverlays[i];
+    if (!defined(overlay)) {
+      continue;
+    }
+    if (!this._satelliteLabeled[i]) {
+      overlay.style.display = "none";
+      continue;
+    }
+
+    const position = this._computeSatellitePosition(i, scratchLabelFixed);
+    if (!defined(position)) {
+      overlay.style.display = "none";
+      continue;
+    }
+
+    const screenPosition = this._scene.cartesianToCanvasCoordinates(
+      position,
+      scratchScreenPos,
+    );
+    if (!defined(screenPosition)) {
+      overlay.style.display = "none";
+      continue;
+    }
+
+    const kilometres = Math.round(
+      Cartesian3.distance(position, this._scene.camera.positionWC) / 1000.0,
+    );
+    overlay.style.display = "block";
+    overlay.style.left = `${screenPosition.x + 14}px`;
+    overlay.style.top = `${screenPosition.y - 20}px`;
+    overlay.textContent = `${this._satellites[i].name} • ${kilometres.toLocaleString()} km`;
+  }
+};
+
+/**
  * Holds the camera's far plane open while anything of ours is drawn, and lets go once
  * nothing is. The default far plane sits well inside the planet's orbit, so without
  * this nothing would be rendered at all.
@@ -870,10 +1245,8 @@ PlanetIndicatorViewModel.prototype._updateSatelliteBody = function () {
       continue;
     }
 
-    const position = PlanetaryEphemeris.computeSatelliteFixedPosition(
-      this._planet,
-      this._satellites[i],
-      this._clock.currentTime,
+    const position = this._computeSatellitePosition(
+      i,
       scratchSatelliteBodyFixed,
     );
 
@@ -939,7 +1312,8 @@ PlanetIndicatorViewModel.prototype._syncUpdating = function () {
     this.panelVisible ||
     this.labelVisible ||
     this.bodyVisible ||
-    this._anySatelliteShown();
+    this._anySatelliteShown() ||
+    this._anySatelliteLabeled();
 
   if (needsUpdate) {
     if (!defined(this._tickListener)) {
@@ -1028,6 +1402,7 @@ PlanetIndicatorViewModel.prototype._update = function () {
   this._updateSatelliteReadout();
   this._updateBody();
   this._updateSatelliteBody();
+  this._updateSatelliteLabels();
   this._updateLabelOverlay(planetPosition);
 };
 
@@ -1100,9 +1475,19 @@ PlanetIndicatorViewModel.prototype.destroy = function () {
   this.stopTracking();
   for (let i = 0; i < this._satellites.length; ++i) {
     this._hideSatelliteBody(i);
+    this._hideSatelliteLabel(i);
+    this._satelliteLabeled[i] = false;
+    this._satelliteOrbitActive[i] = false;
+    const overlay = this._satelliteLabelOverlays[i];
+    if (defined(overlay) && defined(overlay.parentElement)) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    this._satelliteLabelOverlays[i] = undefined;
   }
   this._hideBody();
   this._hideLabelOverlay();
+  this.planetOrbitActive = false;
+  this._syncOrbitClock();
   this.panelVisible = false;
   this.labelVisible = false;
   this._syncUpdating();

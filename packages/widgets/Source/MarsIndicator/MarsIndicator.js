@@ -140,6 +140,17 @@ cesiumSvgPath: { path: _svgPath, width: 100, height: 100 }",
           data-bind="click: toggleBodyCommand, css: { 'cesium-marsIndicator-action-btn-active': bodyVisible }">
           Show Mars
         </button>
+        <button type="button" class="cesium-button cesium-marsIndicator-action-btn"
+          data-bind="click: togglePlanetOrbitCommand,
+                     css: { 'cesium-marsIndicator-action-btn-active': planetOrbitActive }">
+          Orbit
+        </button>
+      </div>
+      <div class="cesium-marsIndicator-slider-row" data-bind="visible: anyOrbitActive">
+        <input type="range" min="1" max="10000" step="1"
+          class="cesium-marsIndicator-slider"
+          data-bind="value: orbitSpeedValue, valueUpdate: 'input'" />
+        <span class="cesium-marsIndicator-slider-label" data-bind="text: orbitSpeedLabel"></span>
       </div>
       <div data-bind="visible: hasSatellites">
         <div class="cesium-marsIndicator-separator"></div>
@@ -172,10 +183,20 @@ cesiumSvgPath: { path: _svgPath, width: 100, height: 100 }",
           data-bind="text: flyToSatelliteLabel, click: flyToSatelliteCommand">
         </button>
         <div class="cesium-marsIndicator-actions">
-          <button type="button" class="cesium-button cesium-marsIndicator-action-btn"
+          <button type="button" class="cesium-button cesium-marsIndicator-action-btn cesium-marsIndicator-moon-show-btn"
             data-bind="text: satelliteToggleLabel,
                        click: toggleSatelliteBodyCommand,
                        css: { 'cesium-marsIndicator-action-btn-active': satelliteVisible }">
+          </button>
+          <button type="button" class="cesium-button cesium-marsIndicator-action-btn"
+            data-bind="click: toggleSatelliteLabelCommand,
+                       css: { 'cesium-marsIndicator-action-btn-active': satelliteLabelVisible }">
+            Label
+          </button>
+          <button type="button" class="cesium-button cesium-marsIndicator-action-btn"
+            data-bind="click: toggleOrbitCommand,
+                       css: { 'cesium-marsIndicator-action-btn-active': orbitActive }">
+            Orbit
           </button>
         </div>
       </div>
