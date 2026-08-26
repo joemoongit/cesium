@@ -36,6 +36,7 @@ import NavigationHelpButton from "../NavigationHelpButton/NavigationHelpButton.j
 import ProjectionPicker from "../ProjectionPicker/ProjectionPicker.js";
 import SceneModePicker from "../SceneModePicker/SceneModePicker.js";
 import SelectionIndicator from "../SelectionIndicator/SelectionIndicator.js";
+import SolarSystem from "../SolarSystem/SolarSystem.js";
 import subscribeAndEvaluate from "../subscribeAndEvaluate.js";
 import Timeline from "../Timeline/Timeline.js";
 import VRButton from "../VRButton/VRButton.js";
@@ -247,6 +248,7 @@ function createNoFeaturesEntity() {
 function enableVRUI(viewer, enabled) {
   const geocoder = viewer._geocoder;
   const homeButton = viewer._homeButton;
+  const solarSystem = viewer._solarSystem;
   const sceneModePicker = viewer._sceneModePicker;
   const projectionPicker = viewer._projectionPicker;
   const baseLayerPicker = viewer._baseLayerPicker;
@@ -263,6 +265,9 @@ function enableVRUI(viewer, enabled) {
   }
   if (defined(homeButton)) {
     homeButton.container.style.visibility = visibility;
+  }
+  if (defined(solarSystem)) {
+    solarSystem.container.style.visibility = visibility;
   }
   if (defined(sceneModePicker)) {
     sceneModePicker.container.style.visibility = visibility;
@@ -316,6 +321,7 @@ function enableVRUI(viewer, enabled) {
  * @property {boolean} [homeButton=true] If set to false, the HomeButton widget will not be created.
  * @property {boolean} [infoBox=true] If set to false, the InfoBox widget will not be created.
  * @property {boolean} [sceneModePicker=true] If set to false, the SceneModePicker widget will not be created.
+ * @property {boolean} [solarSystem=true] If set to false, the SolarSystem widget will not be created and the planets will not be drawn.
  * @property {boolean} [selectionIndicator=true] If set to false, the SelectionIndicator widget will not be created.
  * @property {boolean} [timeline=true] If set to false, the Timeline widget will not be created.
  * @property {boolean} [navigationHelpButton=true] If set to false, the navigation help button will not be created.
@@ -379,6 +385,7 @@ function enableVRUI(viewer, enabled) {
  * @see FullscreenButton
  * @see HomeButton
  * @see SceneModePicker
+ * @see SolarSystem
  * @see Timeline
  * @see viewerDragDropMixin
  *
@@ -648,6 +655,18 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
     );
   }
 
+  // SolarSystem
+  let solarSystem;
+  if (!defined(options.solarSystem) || options.solarSystem !== false) {
+    solarSystem = new SolarSystem(toolbar, scene, clock);
+    if (defined(homeButton)) {
+      // Flying home while the camera is locked onto a planet would fight the lock.
+      eventHelper.add(homeButton.viewModel.command.beforeExecute, function () {
+        solarSystem.viewModel.stopTracking();
+      });
+    }
+  }
+
   // SceneModePicker
   // By default, we silently disable the scene mode picker if scene3DOnly is true,
   // but if sceneModePicker is explicitly set to true, throw an error.
@@ -870,6 +889,7 @@ Either specify options.terrainProvider instead or set options.baseLayerPicker to
   this._destroyClockViewModel = destroyClockViewModel;
   this._toolbar = toolbar;
   this._homeButton = homeButton;
+  this._solarSystem = solarSystem;
   this._sceneModePicker = sceneModePicker;
   this._projectionPicker = projectionPicker;
   this._baseLayerPicker = baseLayerPicker;
@@ -1055,6 +1075,18 @@ Object.defineProperties(Viewer.prototype, {
   homeButton: {
     get: function () {
       return this._homeButton;
+    },
+  },
+
+  /**
+   * Gets the SolarSystem.
+   * @memberof Viewer.prototype
+   * @type {SolarSystem}
+   * @readonly
+   */
+  solarSystem: {
+    get: function () {
+      return this._solarSystem;
     },
   },
 
@@ -1727,6 +1759,10 @@ Viewer.prototype.destroy = function () {
 
   if (defined(this._homeButton)) {
     this._homeButton = this._homeButton.destroy();
+  }
+
+  if (defined(this._solarSystem)) {
+    this._solarSystem = this._solarSystem.destroy();
   }
 
   if (defined(this._sceneModePicker)) {

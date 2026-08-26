@@ -33,6 +33,7 @@ import {
   NavigationHelpButton,
   SceneModePicker,
   SelectionIndicator,
+  SolarSystem,
   Timeline,
 } from "../../index.js";
 
@@ -88,6 +89,7 @@ describe(
       expect(viewer.cesiumWidget).toBeInstanceOf(CesiumWidget);
       expect(viewer.geocoder).toBeInstanceOf(Geocoder);
       expect(viewer.homeButton).toBeInstanceOf(HomeButton);
+      expect(viewer.solarSystem).toBeInstanceOf(SolarSystem);
       expect(viewer.sceneModePicker).toBeInstanceOf(SceneModePicker);
       expect(viewer.baseLayerPicker).toBeInstanceOf(BaseLayerPicker);
       expect(viewer.navigationHelpButton).toBeInstanceOf(NavigationHelpButton);
@@ -172,6 +174,30 @@ describe(
       expect(viewer.selectionIndicator).toBeInstanceOf(SelectionIndicator);
       viewer.resize();
       viewer.render();
+    });
+
+    it("can shut off SolarSystem", function () {
+      viewer = createViewer(container, {
+        solarSystem: false,
+      });
+      expect(viewer.container).toBe(container);
+      expect(viewer.cesiumWidget).toBeInstanceOf(CesiumWidget);
+      expect(viewer.homeButton).toBeInstanceOf(HomeButton);
+      expect(viewer.solarSystem).toBeUndefined();
+      expect(viewer.sceneModePicker).toBeInstanceOf(SceneModePicker);
+      viewer.resize();
+      viewer.render();
+    });
+
+    it("flying home releases the planet the camera is locked onto", function () {
+      viewer = createViewer(container);
+      const viewModel = viewer.solarSystem.viewModel;
+      viewModel._update(viewer.clock.currentTime);
+      viewModel._startTracking(viewModel.planets[2]);
+      expect(viewModel.trackedPlanet).toBe(viewModel.planets[2]);
+
+      viewer.homeButton.viewModel.command();
+      expect(viewModel.trackedPlanet).toBeUndefined();
     });
 
     it("can shut off SceneModePicker", function () {
