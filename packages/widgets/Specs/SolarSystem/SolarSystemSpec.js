@@ -35,7 +35,7 @@ describe(
 
       const widget = new SolarSystem("testContainer", scene, clock);
       expect(widget.container.id).toBe(container.id);
-      expect(widget.viewModel.planets.length).toEqual(8);
+      expect(widget.viewModel.planets.length).toEqual(9);
       expect(widget.isDestroyed()).toEqual(false);
 
       widget.destroy();
@@ -52,12 +52,35 @@ describe(
       const rows = container.getElementsByClassName(
         "cesium-solarSystem-planet",
       );
-      expect(rows.length).toEqual(8);
-      expect(rows[7].textContent).toContain("Pluto");
+      // Every planet, the Earth included, and Pluto.
+      expect(rows.length).toEqual(9);
       expect(rows[0].textContent).toContain("Mercury");
+      expect(rows[2].textContent).toContain("Earth");
+      expect(rows[8].textContent).toContain("Pluto");
+
+      // The Earth has the same controls as the rest of them.
       expect(
-        rows[0].getElementsByClassName("cesium-solarSystem-speed")[0].max,
-      ).toEqual(`${widget.viewModel.speedSliderMaximum}`);
+        rows[2].getElementsByClassName("cesium-solarSystem-speed").length,
+      ).toEqual(2);
+      expect(rows[2].getElementsByTagName("button").length).toEqual(1);
+      expect(
+        rows[2].getElementsByClassName("cesium-solarSystem-spin").length,
+      ).toEqual(1);
+      expect(
+        rows[0].getElementsByClassName("cesium-solarSystem-spin").length,
+      ).toEqual(1);
+      // One slider for the orbit and one for the spin, hidden until toggled on.
+      const sliders = rows[0].getElementsByClassName(
+        "cesium-solarSystem-speed",
+      );
+      expect(sliders.length).toEqual(2);
+      expect(sliders[0].max).toEqual(`${widget.viewModel.speedSliderMaximum}`);
+
+      const rates = rows[0].getElementsByClassName("cesium-solarSystem-rate");
+      expect(rates[0].style.display).toEqual("none");
+      widget.viewModel.planets[0].orbiting = true;
+      expect(rates[0].style.display).not.toEqual("none");
+      expect(rates[1].style.display).toEqual("none");
 
       widget.destroy();
       document.body.removeChild(container);

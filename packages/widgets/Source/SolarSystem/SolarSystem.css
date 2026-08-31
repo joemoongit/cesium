@@ -16,7 +16,7 @@ span.cesium-solarSystem-wrapper {
   position: absolute;
   top: 38px;
   right: 0;
-  width: 430px;
+  width: 478px;
   padding: 6px 8px 8px 8px;
   border: 1px solid #444;
   border-radius: 10px;
@@ -25,7 +25,7 @@ span.cesium-solarSystem-wrapper {
   font-family: sans-serif;
   font-size: 12px;
   transform: scale(0.01);
-  transform-origin: 430px -10px;
+  transform-origin: 478px -10px;
   transition:
     visibility 0s 0.25s,
     transform 0.25s ease-in;
@@ -78,17 +78,16 @@ span.cesium-solarSystem-wrapper {
 
 .cesium-solarSystem-planet {
   display: grid;
-  grid-template-columns: 12px 62px 52px auto 110px 52px auto;
+  grid-template-columns: 12px 62px 52px auto auto 168px auto;
   align-items: center;
   column-gap: 4px;
   padding: 1px 0;
 }
 
-.cesium-solarSystem-legend {
+.cesium-solarSystem-all {
   display: flex;
   align-items: center;
-  gap: 4px;
-  color: #a0b0b0;
+  gap: 10px;
 }
 
 .cesium-solarSystem-swatch {
@@ -109,15 +108,27 @@ span.cesium-solarSystem-wrapper {
   font-variant-numeric: tabular-nums;
 }
 
+.cesium-solarSystem-speedText {
+  width: 52px;
+}
+
+.cesium-solarSystem-speeds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 168px;
+}
+
+.cesium-solarSystem-rate {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .cesium-solarSystem-speed {
   width: 110px;
   cursor: pointer;
   vertical-align: middle;
-}
-
-.cesium-solarSystem-speed:disabled {
-  cursor: default;
-  opacity: 0.4;
 }
 
 .cesium-solarSystem-panel .cesium-button {

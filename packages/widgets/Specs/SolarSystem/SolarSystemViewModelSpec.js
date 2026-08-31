@@ -1,6 +1,7 @@
 import {
   Cartesian3,
   Clock,
+  ClockStep,
   JulianDate,
   Math as CesiumMath,
   Matrix3,
@@ -71,7 +72,8 @@ describe(
       expect(viewModel.clock).toBe(clock);
       expect(viewModel.dropDownVisible).toEqual(false);
       expect(scene.preUpdate.numberOfListeners).toEqual(1);
-      // The point, label and orbit collections, plus one body per row.
+      // The point, label and orbit collections, plus one body per row -- but nothing
+      // for the Earth, which Cesium draws itself.
       expect(scene.primitives.length).toEqual(primitiveCount + 11);
 
       viewModel.destroy();
@@ -92,7 +94,7 @@ describe(
       }).toThrowDeveloperError();
     });
 
-    it("has a row for each planet, and for Pluto", function () {
+    it("has a row for each planet, the Earth and Pluto included", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
 
       expect(
@@ -102,6 +104,7 @@ describe(
       ).toEqual([
         "Mercury",
         "Venus",
+        "Earth",
         "Mars",
         "Jupiter",
         "Saturn",
@@ -109,7 +112,7 @@ describe(
         "Neptune",
         "Pluto",
       ]);
-      expect(viewModel.planets[7].description).toContain("a dwarf planet");
+      expect(viewModel.planets[8].description).toContain("a dwarf planet");
       viewModel.planets.forEach(function (planet) {
         expect(planet.orbiting).toEqual(false);
         expect(planet.colorCss).toMatch(/^#[0-9a-f]{6}$/);
@@ -118,27 +121,146 @@ describe(
       viewModel.destroy();
     });
 
-    it("maps the speed slider onto 1x through 100000x", function () {
+    it("scales each speed slider to its own body", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[0];
 
-      // A decade of speed every fifth of the slider's travel.
-      expect(planet.speed).toEqual(1000);
+      viewModel.planets.forEach(function (planet) {
+        const periods = {
+          orbit: PlanetaryEphemeris.computeOrbitalPeriod(planet._body),
+          spin: PlanetaryEphemeris.computeRotationPeriod(planet._body),
+        };
 
-      planet.speedSliderValue = 0;
-      expect(planet.speed).toEqual(1);
-      expect(planet.speedText).toEqual("1x");
+        ["orbit", "spin"].forEach(function (prefix) {
+          const value = `${prefix}SpeedSliderValue`;
+          const speed = `${prefix}Speed`;
+          const seconds = Math.abs(periods[prefix]) * 86400.0;
 
-      planet.speedSliderValue = 40;
-      expect(planet.speed).toEqual(100);
+          // Every slider starts at 1x however slow the body is.
+          planet[value] = 0;
+          expect(planet[speed]).toEqual(1);
+          expect(planet[`${prefix}SpeedText`]).toEqual("1x");
 
-      planet.speedSliderValue = viewModel.speedSliderMaximum;
-      expect(planet.speed).toEqual(100000);
-      expect(planet.speedText).toEqual("100,000x");
+          // A minute a revolution to begin with, four seconds at the top, whether it
+          // is Mercury's 88 day year or Pluto's 248 year one.
+          planet[value] = viewModel.speedSliderMaximum;
+          expect(seconds / planet[speed]).toEqualEpsilon(4.0, 0.4);
 
-      // The range input reports its value as a string.
-      planet.speedSliderValue = "20";
-      expect(planet.speed).toEqual(10);
+          // The range input reports its value as a string.
+          planet[value] = "0";
+          expect(planet[speed]).toEqual(1);
+        });
+      });
+
+      // Which means the ceilings differ by orders of magnitude between bodies.
+      const mercury = viewModel.planets[0];
+      const pluto = viewModel.planets[8];
+      mercury.orbitSpeedSliderValue = viewModel.speedSliderMaximum;
+      pluto.orbitSpeedSliderValue = viewModel.speedSliderMaximum;
+      expect(pluto.orbitSpeed / mercury.orbitSpeed).toBeGreaterThan(100.0);
+
+      viewModel.destroy();
+    });
+
+    it("starts every planet at a minute a revolution", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+
+      viewModel.planets.forEach(function (planet) {
+        const orbit =
+          PlanetaryEphemeris.computeOrbitalPeriod(planet._body) * 86400.0;
+        const spin = Math.abs(
+          PlanetaryEphemeris.computeRotationPeriod(planet._body) * 86400.0,
+        );
+        expect(orbit / planet.orbitSpeed).toEqualEpsilon(60.0, 6.0);
+        expect(spin / planet.spinSpeed).toEqualEpsilon(60.0, 6.0);
+      });
+
+      viewModel.destroy();
+    });
+
+    it("keeps the orbit and spin speeds apart", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const planet = viewModel.planets[3];
+      const time = clock.currentTime;
+
+      planet.orbitSpeedSliderValue = 0;
+      planet.spinSpeedSliderValue = viewModel.speedSliderMaximum;
+      expect(planet.orbitSpeed).toEqual(1);
+      expect(planet.spinSpeed).toBeGreaterThan(1000);
+
+      planet.orbiting = true;
+      planet.spinning = true;
+      viewModel._update(time);
+      const orbitBefore = planet._offsetSeconds;
+      const spinBefore = planet._spinSeconds;
+      viewModel._update(time);
+
+      // The spin ran on far faster than the orbit, each at its own slider's rate.
+      const orbited = planet._offsetSeconds - orbitBefore;
+      const spun = planet._spinSeconds - spinBefore;
+      expect(spun / orbited).toEqualEpsilon(planet.spinSpeed, 1.0);
+      expect(orbited).toBeGreaterThan(0.0);
+
+      viewModel.destroy();
+    });
+
+    it("orbits the real Earth by carrying the observer, drawing nothing of its own", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const earth = viewModel.planets[2];
+      const time = clock.currentTime;
+      expect(earth.name).toEqual("Earth");
+
+      // Cesium's globe is the Earth, so the widget adds no body, marker or label for
+      // it, and it cannot be spun: the globe's rotation is the fixed frame itself.
+      expect(earth._drawn).toEqual(false);
+      expect(earth._bodyPrimitive).toBeUndefined();
+
+      viewModel._update(time);
+      expect(earth.position).toEqual(Cartesian3.ZERO);
+
+      // Half a year round its orbit puts the observer on the far side of the Sun, so
+      // every other planet's apparent position moves by the width of Earth's orbit.
+      const before = viewModel.planets.map(function (planet) {
+        return Cartesian3.clone(planet.position);
+      });
+      earth._offsetSeconds = 182.6 * 86400.0;
+      viewModel._update(time);
+
+      expect(earth.position).toEqual(Cartesian3.ZERO);
+      viewModel.planets.forEach(function (planet, index) {
+        if (planet === earth) {
+          return;
+        }
+        expect(
+          Cartesian3.distance(planet.position, before[index]) /
+            PlanetaryEphemeris.AU_METERS,
+        ).toEqualEpsilon(2.0, 0.05);
+      });
+
+      viewModel.destroy();
+    });
+
+    it("allSpinning starts and stops every planet", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+
+      expect(viewModel.allSpinning).toEqual(false);
+      viewModel.allSpinning = true;
+      expect(
+        viewModel.planets.every(function (planet) {
+          return planet.spinning;
+        }),
+      ).toEqual(true);
+      // The two group toggles are independent.
+      expect(viewModel.allOrbiting).toEqual(false);
+
+      viewModel.planets[6].spinning = false;
+      expect(viewModel.allSpinning).toEqual(false);
+
+      viewModel.allSpinning = false;
+      expect(
+        viewModel.planets.some(function (planet) {
+          return planet.spinning;
+        }),
+      ).toEqual(false);
 
       viewModel.destroy();
     });
@@ -156,6 +278,8 @@ describe(
 
       viewModel.planets[3].orbiting = false;
       expect(viewModel.allOrbiting).toEqual(false);
+      // The Earth is in the group with the rest of them.
+      expect(viewModel.planets[2].orbiting).toEqual(true);
 
       viewModel.allOrbiting = false;
       expect(
@@ -186,7 +310,7 @@ describe(
 
     it("carries an orbiting planet forward in time, and resetPositions brings it back", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       const time = clock.currentTime;
 
       // A tenth of a Martian year, far enough around the orbit to be unambiguous.
@@ -213,7 +337,7 @@ describe(
 
     it("leaves a stopped planet where it was carried to", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       const time = clock.currentTime;
 
       // Stand in for having had the planet orbiting for a while.
@@ -243,11 +367,11 @@ describe(
 
     it("flies to where a planet will be when the flight lands", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       const time = clock.currentTime;
       spyOn(scene.camera, "flyToBoundingSphere");
 
-      planet.speedSliderValue = viewModel.speedSliderMaximum;
+      planet.orbitSpeedSliderValue = viewModel.speedSliderMaximum;
       planet.orbiting = true;
       viewModel._update(time);
 
@@ -261,7 +385,7 @@ describe(
         expectedPosition(
           planet,
           time,
-          planet._offsetSeconds + planet.speed * duration,
+          planet._offsetSeconds + planet.orbitSpeed * duration,
         ),
         CesiumMath.EPSILON7,
       );
@@ -274,7 +398,7 @@ describe(
 
     it("flies to a stopped planet where it was carried to", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       const time = clock.currentTime;
       spyOn(scene.camera, "flyToBoundingSphere");
 
@@ -298,7 +422,7 @@ describe(
 
     it("locks the camera onto the planet once the flight lands, and lets it go again", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       spyOn(scene.camera, "flyToBoundingSphere").and.callFake(
         function (boundingSphere, options) {
           options.complete();
@@ -330,7 +454,7 @@ describe(
 
     it("keeps the camera with a planet that is still orbiting", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
       const time = clock.currentTime;
 
       viewModel._update(time);
@@ -359,7 +483,7 @@ describe(
 
     it("lets the camera go when it stops drawing the planets", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
 
       viewModel._update(clock.currentTime);
       viewModel._startTracking(planet);
@@ -376,7 +500,7 @@ describe(
 
     it("lets the camera go when it is destroyed", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[2];
+      const planet = viewModel.planets[3];
 
       viewModel._update(clock.currentTime);
       viewModel._startTracking(planet);
@@ -390,6 +514,171 @@ describe(
       expect(
         scene.screenSpaceCameraController.minimumZoomDistance,
       ).toBeLessThan(minimumZoomDistance);
+    });
+
+    it("turns a planet on its axis without moving it along its orbit", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const planet = viewModel.planets[3];
+      const time = clock.currentTime;
+
+      viewModel._update(time);
+      expect(planet.spinning).toEqual(false);
+      expect(planet._spinSeconds).toEqual(0.0);
+      // Plain while it is not spinning, banded while it is, so the turn can be seen.
+      expect(planet._bodyPrimitive.material.type).toEqual("Color");
+
+      planet.spinning = true;
+      expect(planet._bodyPrimitive.material.type).toEqual("Stripe");
+
+      // Stand in for having spun for a while, then check the orbit stayed put.
+      const position = Cartesian3.clone(planet.position);
+      planet._spinSeconds = 3.0 * 3600.0;
+      viewModel._update(time);
+      expect(planet._offsetSeconds).toEqual(0.0);
+      expect(planet.position).toEqualEpsilon(position, CesiumMath.EPSILON7);
+
+      // A quarter of Jupiter's day turns the body a quarter turn about its pole.
+      const rotation = Matrix4.getMatrix3(
+        planet._bodyPrimitive.modelMatrix,
+        new Matrix3(),
+      );
+      expect(Matrix3.determinant(rotation)).toEqualEpsilon(
+        1.0,
+        CesiumMath.EPSILON9,
+      );
+
+      planet.spinning = false;
+      expect(planet._bodyPrimitive.material.type).toEqual("Color");
+      viewModel._update(time);
+      viewModel._update(time);
+      expect(planet._spinSeconds).toEqual(3.0 * 3600.0);
+
+      viewModel.resetPositions();
+      expect(planet._spinSeconds).toEqual(0.0);
+
+      viewModel.destroy();
+    });
+
+    it("spins the real Earth by running the clock, and puts it back", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const earth = viewModel.planets[2];
+      clock.multiplier = 1.0;
+      clock.shouldAnimate = false;
+      clock.clockStep = ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+
+      // The globe's rotation is the Earth fixed frame, and that frame is a function
+      // of the clock, so the clock is the only thing that can turn it.
+      earth.spinning = true;
+      expect(clock.multiplier).toEqual(earth.spinSpeed);
+      expect(clock.shouldAnimate).toEqual(true);
+
+      // Dragging the slider has to reach the clock as well.
+      earth.spinSpeedSliderValue = viewModel.speedSliderMaximum;
+      expect(clock.multiplier).toEqual(earth.spinSpeed);
+
+      // One sidereal day of simulated time is one turn of the globe.
+      const day =
+        Math.abs(
+          PlanetaryEphemeris.computeRotationPeriod(earth._body) * 86400.0,
+        ) * 0.25;
+      const before = new Matrix3();
+      const after = new Matrix3();
+      Transforms.computeTemeToPseudoFixedMatrix(clock.currentTime, before);
+      Transforms.computeTemeToPseudoFixedMatrix(
+        JulianDate.addSeconds(clock.currentTime, day, new JulianDate()),
+        after,
+      );
+      const turned = Matrix3.multiply(
+        after,
+        Matrix3.transpose(before, new Matrix3()),
+        new Matrix3(),
+      );
+      expect(
+        CesiumMath.toDegrees(
+          Math.acos(
+            CesiumMath.clamp(
+              (turned[0] + turned[4] + turned[8] - 1.0) * 0.5,
+              -1.0,
+              1.0,
+            ),
+          ),
+        ),
+      ).toEqualEpsilon(90.0, 0.5);
+
+      // And the camera is held against the stars, so it is the globe that turns
+      // rather than the sky: left in the fixed frame the camera would ride round with
+      // the ground and the Earth would appear to stand still.
+      expect(scene.camera.transform).not.toEqual(Matrix4.IDENTITY);
+
+      earth.spinning = false;
+      expect(clock.multiplier).toEqual(1.0);
+      expect(clock.shouldAnimate).toEqual(false);
+      expect(scene.camera.transform).toEqual(Matrix4.IDENTITY);
+
+      // Anything the user changed underneath is left where they put it.
+      earth.spinning = true;
+      clock.multiplier = 5.0;
+      earth.spinning = false;
+      expect(clock.multiplier).toEqual(5.0);
+
+      viewModel.destroy();
+    });
+
+    it("holds the camera against the stars while the Earth turns", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const earth = viewModel.planets[2];
+      const camera = scene.camera;
+
+      earth.spinning = true;
+      viewModel._update(clock.currentTime);
+      scene.postUpdate.raiseEvent(scene, clock.currentTime);
+      const before = Cartesian3.clone(camera.positionWC);
+
+      // A quarter of a sidereal day on, as the running clock would take it.
+      const quarter =
+        Math.abs(
+          PlanetaryEphemeris.computeRotationPeriod(earth._body) * 86400.0,
+        ) * 0.25;
+      clock.currentTime = JulianDate.addSeconds(
+        clock.currentTime,
+        quarter,
+        new JulianDate(),
+      );
+      viewModel._update(clock.currentTime);
+      scene.postUpdate.raiseEvent(scene, clock.currentTime);
+
+      // In inertial coordinates the camera has not moved at all. In the fixed frame
+      // the globe is drawn in, it has come a quarter of the way round -- which is the
+      // globe turning underneath it.
+      function inertial(fixed, date) {
+        const rotation = new Matrix3();
+        if (!Transforms.computeIcrfToFixedMatrix(date, rotation)) {
+          Transforms.computeTemeToPseudoFixedMatrix(date, rotation);
+        }
+        return Matrix3.multiplyByVector(
+          Matrix3.transpose(rotation, rotation),
+          fixed,
+          new Cartesian3(),
+        );
+      }
+      const startTime = JulianDate.addSeconds(
+        clock.currentTime,
+        -quarter,
+        new JulianDate(),
+      );
+      expect(
+        Cartesian3.angleBetween(
+          inertial(before, startTime),
+          inertial(camera.positionWC, clock.currentTime),
+        ),
+      ).toBeLessThan(CesiumMath.toRadians(0.5));
+      expect(Cartesian3.angleBetween(before, camera.positionWC)).toEqualEpsilon(
+        CesiumMath.PI_OVER_TWO,
+        CesiumMath.toRadians(1.0),
+      );
+
+      earth.spinning = false;
+      viewModel.destroy();
     });
 
     it("pushes the far plane out past the planets and puts it back", function () {
@@ -429,14 +718,14 @@ describe(
       viewModel.destroy();
     });
 
-    it("draws the Earth's path around the Sun along with the planets'", function () {
+    it("draws a path around the Sun for every body", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
 
-      // One path per row, plus the Earth's.
+      // One path per body, the Earth's among them.
       expect(viewModel._orbits.length).toEqual(9);
       // The Earth's aphelion, at 1.0167 AU.
       expect(
-        viewModel._earthOrbitRadius / PlanetaryEphemeris.AU_METERS,
+        viewModel.planets[2]._orbitRadius / PlanetaryEphemeris.AU_METERS,
       ).toEqualEpsilon(1.0167, CesiumMath.EPSILON3);
 
       viewModel.destroy();

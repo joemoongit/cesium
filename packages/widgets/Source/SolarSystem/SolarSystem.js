@@ -16,10 +16,10 @@ M 57.4 22.8 A 27 9 -20 1 1 6.6 41.2 A 27 9 -20 1 1 57.4 22.8 z \
 M 53.6 24.1 A 23 6.2 -20 1 0 10.4 39.9 A 23 6.2 -20 1 0 53.6 24.1 z";
 
 /**
- * <p>The SolarSystem widget draws the seven planets other than the Earth, and Pluto, at
- * their real positions, along with the path each of them and the Earth take around the
- * Sun, and lets each of them be sent around the Sun at anywhere from 1x to 100000x
- * real time.  Bodies that are not orbiting stay exactly where they are right now.</p>
+ * <p>The SolarSystem widget draws the planets and Pluto at their real positions, along
+ * with the path each of them takes around the Sun, and lets each one be sent around the
+ * Sun or turned on its own axis at up to a million times real time.  Bodies that are
+ * not orbiting stay exactly where they are right now.</p>
  *
  * @alias SolarSystem
  * @constructor
@@ -82,10 +82,16 @@ css: { "cesium-solarSystem-visible": dropDownVisible,\
   );
   panel.innerHTML = `<div class="cesium-solarSystem-header">
   <span class="cesium-solarSystem-title">Solar System</span>
-  <label title="Start or stop every planet at once">
-    <input type="checkbox" data-bind="checked: allOrbiting" />
-    Orbit all
-  </label>
+  <span class="cesium-solarSystem-all">
+    <label title="Send every planet round the Sun at once">
+      <input type="checkbox" data-bind="checked: allOrbiting" />
+      Orbit all
+    </label>
+    <label title="Turn every planet on its axis at once">
+      <input type="checkbox" data-bind="checked: allSpinning" />
+      Spin all
+    </label>
+  </span>
 </div>
 <div data-bind="foreach: planets">
   <div class="cesium-solarSystem-planet" data-bind="attr: { title: description }">
@@ -96,12 +102,28 @@ css: { "cesium-solarSystem-visible": dropDownVisible,\
       <input type="checkbox" data-bind="checked: orbiting" />
       Orbit
     </label>
-    <input class="cesium-solarSystem-speed" type="range" min="0" step="1"
-           data-bind="attr: { max: $parent.speedSliderMaximum },
-                      value: speedSliderValue,
-                      valueUpdate: 'input',
-                      enable: orbiting" />
-    <span class="cesium-solarSystem-speedText" data-bind="text: speedText"></span>
+    <label class="cesium-solarSystem-spin">
+      <input type="checkbox" data-bind="checked: spinning" />
+      Spin
+    </label>
+    <span class="cesium-solarSystem-speeds">
+      <span class="cesium-solarSystem-rate" data-bind="visible: orbiting"
+            title="How much faster than real time this one goes round the Sun">
+        <input class="cesium-solarSystem-speed" type="range" min="0" step="1"
+               data-bind="attr: { max: $parent.speedSliderMaximum },
+                          value: orbitSpeedSliderValue,
+                          valueUpdate: 'input'" />
+        <span class="cesium-solarSystem-speedText" data-bind="text: orbitSpeedText"></span>
+      </span>
+      <span class="cesium-solarSystem-rate" data-bind="visible: spinning"
+            title="How much faster than real time this one turns on its axis">
+        <input class="cesium-solarSystem-speed" type="range" min="0" step="1"
+               data-bind="attr: { max: $parent.speedSliderMaximum },
+                          value: spinSpeedSliderValue,
+                          valueUpdate: 'input'" />
+        <span class="cesium-solarSystem-speedText" data-bind="text: spinSpeedText"></span>
+      </span>
+    </span>
     <button type="button" class="cesium-button cesium-solarSystem-flyTo"
             data-bind="click: flyTo,
                        text: flyToText,
@@ -116,11 +138,6 @@ css: { "cesium-solarSystem-visible": dropDownVisible,\
     <input type="checkbox" data-bind="checked: showOrbits" />
     Show orbit paths
   </label>
-  <span class="cesium-solarSystem-legend" title="Seen from the ground, the Earth's own orbit traces the ecliptic"
-        data-bind="visible: showOrbits">
-    <span class="cesium-solarSystem-swatch" data-bind="style: { backgroundColor: earthOrbitColorCss }"></span>
-    Earth
-  </span>
   <button type="button" class="cesium-button" title="Put every planet back where it is right now"
           data-bind="click: resetPositions">
     Reset positions

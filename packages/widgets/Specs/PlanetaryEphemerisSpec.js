@@ -1,8 +1,12 @@
 import {
   Cartesian3,
+  IauOrientationAxes,
+  IauOrientationParameters,
   JulianDate,
   Math as CesiumMath,
+  Matrix3,
   Simon1994PlanetaryPositions,
+  Transforms,
 } from "@cesium/engine";
 import { PlanetaryEphemeris } from "../index.js";
 
@@ -19,10 +23,9 @@ describe("Widgets/PlanetaryEphemeris", function () {
     return JulianDate.fromIso8601(iso8601);
   });
 
-  const bodies = PlanetaryEphemeris.PLANETS.concat(
-    PlanetaryEphemeris.DWARF_PLANETS,
-    [PlanetaryEphemeris.EARTH_MOON_BARYCENTER],
-  );
+  const bodies = PlanetaryEphemeris.BODIES.concat([
+    PlanetaryEphemeris.EARTH_MOON_BARYCENTER,
+  ]);
 
   /**
    * @param {Cartesian3} position An equatorial position.
@@ -183,6 +186,177 @@ describe("Widgets/PlanetaryEphemeris", function () {
           elements.a * (1.0 + elements.e) * AU * 1.01,
         );
       });
+    });
+  });
+
+  it("turns each body at its published rate, and the right way round", function () {
+    // Rotation periods in days; negative for the retrograde rotators.
+    const periods = {
+      Mercury: 58.646,
+      Earth: 0.99726968,
+      Venus: -243.025,
+      Mars: 1.02595676,
+      Jupiter: 0.41354,
+      Saturn: 0.44401,
+      Uranus: -0.71833,
+      Neptune: 0.67125,
+      Pluto: 6.3872,
+    };
+
+    PlanetaryEphemeris.BODIES.forEach(function (body) {
+      const period = PlanetaryEphemeris.computeRotationPeriod(body);
+      const expected = periods[body.name];
+      expect(period).toEqualEpsilon(expected, Math.abs(expected) * 0.001);
+      expect(Math.sign(period)).toEqual(Math.sign(expected));
+    });
+  });
+
+  it("points each body's pole so that its obliquity comes out right", function () {
+    // The angle between the pole and the orbit's angular momentum. Measured from the
+    // IAU north pole, so a retrograde rotator's is the supplement of the figure
+    // usually quoted.
+    const obliquities = {
+      Mercury: 0.034,
+      Earth: 23.44,
+      Venus: 2.64,
+      Mars: 25.19,
+      Jupiter: 3.13,
+      Saturn: 26.73,
+      Uranus: 82.23,
+      Neptune: 28.32,
+      Pluto: 119.59,
+    };
+    const orientation = new IauOrientationParameters();
+
+    PlanetaryEphemeris.BODIES.forEach(function (body) {
+      PlanetaryEphemeris.computeOrientation(body, dates[0], orientation);
+      const pole = new Cartesian3(
+        Math.cos(orientation.declination) *
+          Math.cos(orientation.rightAscension),
+        Math.cos(orientation.declination) *
+          Math.sin(orientation.rightAscension),
+        Math.sin(orientation.declination),
+      );
+
+      const inclination = CesiumMath.toRadians(body.elements.inclination);
+      const node = CesiumMath.toRadians(body.elements.longitudeOfNode);
+      const y = -Math.sin(inclination) * Math.cos(node);
+      const z = Math.cos(inclination);
+      const normal = new Cartesian3(
+        Math.sin(inclination) * Math.sin(node),
+        Math.cos(OBLIQUITY) * y - Math.sin(OBLIQUITY) * z,
+        Math.sin(OBLIQUITY) * y + Math.cos(OBLIQUITY) * z,
+      );
+
+      expect(
+        CesiumMath.toDegrees(Math.acos(Cartesian3.dot(pole, normal))),
+      ).toEqualEpsilon(obliquities[body.name], 0.05);
+    });
+  });
+
+  it("sends every body round the Sun the way it really goes", function () {
+    const eclipticNorth = new Cartesian3(
+      0.0,
+      -Math.sin(OBLIQUITY),
+      Math.cos(OBLIQUITY),
+    );
+
+    PlanetaryEphemeris.BODIES.forEach(function (body) {
+      const before = PlanetaryEphemeris.computeHeliocentricPosition(
+        body,
+        dates[1],
+        new Cartesian3(),
+      );
+      const after = PlanetaryEphemeris.computeHeliocentricPosition(
+        body,
+        JulianDate.addSeconds(dates[1], 86400.0, new JulianDate()),
+        new Cartesian3(),
+      );
+
+      // Every planet goes the same way round, which a sign slip anywhere in the
+      // rotation out of the orbital plane would reverse.
+      expect(
+        Cartesian3.dot(
+          Cartesian3.cross(before, after, new Cartesian3()),
+          eclipticNorth,
+        ),
+      ).toBeGreaterThan(0.0);
+    });
+  });
+
+  it("puts each planet opposite the Sun on its published opposition date", function () {
+    // Opposition pins down where a planet is on its orbit, which the perihelion and
+    // period checks cannot: they would all pass with the whole orbit rotated.
+    const oppositions = {
+      Mars: "2025-01-16",
+      Jupiter: "2026-01-10",
+      Saturn: "2025-09-21",
+      Uranus: "2025-11-21",
+      Neptune: "2025-09-23",
+      Pluto: "2025-07-25",
+    };
+
+    Object.keys(oppositions).forEach(function (name) {
+      const body = PlanetaryEphemeris.BODIES.filter(function (candidate) {
+        return candidate.name === name;
+      })[0];
+      const date = JulianDate.fromIso8601(`${oppositions[name]}T00:00:00Z`);
+
+      const planet = PlanetaryEphemeris.computeGeocentricPosition(
+        body,
+        date,
+        new Cartesian3(),
+      );
+      const sun =
+        Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(
+          date,
+          new Cartesian3(),
+        );
+
+      // Opposition is defined on ecliptic longitude; the latitude is what keeps the
+      // elongation itself a degree or two short of a straight line.
+      const separation = Math.abs(
+        wrap(eclipticLongitude(planet) - eclipticLongitude(sun)),
+      );
+      expect(separation).toEqualEpsilon(180.0, 0.6);
+    });
+  });
+
+  it("agrees with Cesium about which way the Earth is facing", function () {
+    // The engine's own Earth fixed frame is an independent implementation of the one
+    // thing this module cannot check against itself: the phase of a body's spin.
+    const axes = new IauOrientationAxes(function (date) {
+      return PlanetaryEphemeris.computeOrientation(
+        PlanetaryEphemeris.EARTH,
+        date,
+        new IauOrientationParameters(),
+      );
+    });
+
+    dates.forEach(function (date) {
+      const mine = axes.evaluate(date, new Matrix3());
+      const cesium = new Matrix3();
+      if (!Transforms.computeIcrfToFixedMatrix(date, cesium)) {
+        Transforms.computeTemeToPseudoFixedMatrix(date, cesium);
+      }
+
+      // The angle of the rotation between the two frames. A wrong prime meridian
+      // would be out by tens of degrees, and a wrong sense would swing with time.
+      const difference = Matrix3.multiply(
+        cesium,
+        Matrix3.transpose(mine, new Matrix3()),
+        new Matrix3(),
+      );
+      const angle = CesiumMath.toDegrees(
+        Math.acos(
+          CesiumMath.clamp(
+            (difference[0] + difference[4] + difference[8] - 1.0) * 0.5,
+            -1.0,
+            1.0,
+          ),
+        ),
+      );
+      expect(angle).toBeLessThan(1.0);
     });
   });
 

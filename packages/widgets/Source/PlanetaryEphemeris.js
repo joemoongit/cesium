@@ -1,5 +1,6 @@
 import {
   Cartesian3,
+  defined,
   JulianDate,
   Math as CesiumMath,
   Simon1994PlanetaryPositions,
@@ -42,8 +43,14 @@ PlanetaryEphemeris.AU_METERS = AU_METERS;
  * Keplerian elements and their per-century rates, valid 1800 AD - 2050 AD. Source:
  * "Keplerian Elements for Approximate Positions of the Major Planets", E. M. Standish,
  * JPL Solar System Dynamics. Semi-major axes are in AU, all angles are in degrees, and
- * all rates are per Julian century. Radii are the IAU mean equatorial and polar radii,
- * in meters.
+ * all element rates are per Julian century. Radii are the IAU mean equatorial and polar
+ * radii, in meters.
+ *
+ * <p>The orientation is the body's pole of rotation and prime meridian, from the IAU
+ * Working Group on Cartographic Coordinates and Rotational Elements. The pole rates are
+ * per Julian century, but the prime meridian rate is per day, and its sign is what makes
+ * Venus and Uranus turn the other way. The small periodic terms some of the bodies carry
+ * are left out; they are a few hundredths of a degree.</p>
  *
  * @type {object}
  */
@@ -66,6 +73,14 @@ PlanetaryEphemeris.MERCURY = {
     longitudeOfNode: -0.12534081,
   },
   radii: new Cartesian3(2439700.0, 2439700.0, 2439700.0),
+  orientation: {
+    rightAscension: 281.0103,
+    rightAscensionRate: -0.0328,
+    declination: 61.4155,
+    declinationRate: -0.0049,
+    primeMeridian: 329.5988,
+    primeMeridianRate: 6.1385108,
+  },
 };
 
 /**
@@ -91,6 +106,14 @@ PlanetaryEphemeris.VENUS = {
     longitudeOfNode: -0.27769418,
   },
   radii: new Cartesian3(6051800.0, 6051800.0, 6051800.0),
+  orientation: {
+    rightAscension: 272.76,
+    rightAscensionRate: 0.0,
+    declination: 67.16,
+    declinationRate: 0.0,
+    primeMeridian: 160.2,
+    primeMeridianRate: -1.4813688,
+  },
 };
 
 /**
@@ -122,6 +145,30 @@ PlanetaryEphemeris.EARTH_MOON_BARYCENTER = {
 };
 
 /**
+ * The Earth. It shares the barycenter's elements -- the two are never further apart
+ * than 4700 km, which is nothing at the distances the widget draws at -- but carries
+ * its own radii and its own pole.
+ *
+ * @see PlanetaryEphemeris.MERCURY
+ * @type {object}
+ */
+PlanetaryEphemeris.EARTH = {
+  name: "Earth",
+  elements: PlanetaryEphemeris.EARTH_MOON_BARYCENTER.elements,
+  rates: PlanetaryEphemeris.EARTH_MOON_BARYCENTER.rates,
+  radii: new Cartesian3(6378137.0, 6378137.0, 6356752.314245),
+  orientation: {
+    rightAscension: 0.0,
+    rightAscensionRate: -0.641,
+    declination: 90.0,
+    declinationRate: -0.557,
+    // A sidereal day, which is the turn the Earth makes against the stars.
+    primeMeridian: 190.147,
+    primeMeridianRate: 360.9856235,
+  },
+};
+
+/**
  * @see PlanetaryEphemeris.MERCURY
  * @type {object}
  */
@@ -144,6 +191,14 @@ PlanetaryEphemeris.MARS = {
     longitudeOfNode: -0.29257343,
   },
   radii: new Cartesian3(3396190.0, 3396190.0, 3376200.0),
+  orientation: {
+    rightAscension: 317.68143,
+    rightAscensionRate: -0.1061,
+    declination: 52.8865,
+    declinationRate: -0.0609,
+    primeMeridian: 176.63,
+    primeMeridianRate: 350.89198226,
+  },
 };
 
 /**
@@ -169,6 +224,14 @@ PlanetaryEphemeris.JUPITER = {
     longitudeOfNode: 0.20469106,
   },
   radii: new Cartesian3(71492000.0, 71492000.0, 66854000.0),
+  orientation: {
+    rightAscension: 268.056595,
+    rightAscensionRate: -0.006499,
+    declination: 64.495303,
+    declinationRate: 0.002413,
+    primeMeridian: 284.95,
+    primeMeridianRate: 870.536,
+  },
 };
 
 /**
@@ -194,6 +257,14 @@ PlanetaryEphemeris.SATURN = {
     longitudeOfNode: -0.28867794,
   },
   radii: new Cartesian3(60268000.0, 60268000.0, 54364000.0),
+  orientation: {
+    rightAscension: 40.589,
+    rightAscensionRate: -0.036,
+    declination: 83.537,
+    declinationRate: -0.004,
+    primeMeridian: 38.9,
+    primeMeridianRate: 810.7939024,
+  },
 };
 
 /**
@@ -219,6 +290,14 @@ PlanetaryEphemeris.URANUS = {
     longitudeOfNode: 0.04240589,
   },
   radii: new Cartesian3(25559000.0, 25559000.0, 24973000.0),
+  orientation: {
+    rightAscension: 257.311,
+    rightAscensionRate: 0.0,
+    declination: -15.175,
+    declinationRate: 0.0,
+    primeMeridian: 203.81,
+    primeMeridianRate: -501.1600928,
+  },
 };
 
 /**
@@ -244,6 +323,23 @@ PlanetaryEphemeris.NEPTUNE = {
     longitudeOfNode: -0.00508664,
   },
   radii: new Cartesian3(24764000.0, 24764000.0, 24341000.0),
+  orientation: {
+    rightAscension: 299.36,
+    rightAscensionRate: 0.0,
+    declination: 43.46,
+    declinationRate: 0.0,
+    primeMeridian: 253.18,
+    primeMeridianRate: 536.3128492,
+    // Half a degree of pole wander, which is more than the accuracy of everything
+    // else here, so unlike the other bodies' periodic terms it is kept.
+    libration: {
+      argument: 357.85,
+      argumentRate: 52.316,
+      rightAscension: 0.7,
+      declination: -0.51,
+      primeMeridian: -0.48,
+    },
+  },
 };
 
 /**
@@ -273,6 +369,14 @@ PlanetaryEphemeris.PLUTO = {
     longitudeOfNode: -0.01183482,
   },
   radii: new Cartesian3(1188300.0, 1188300.0, 1188300.0),
+  orientation: {
+    rightAscension: 132.993,
+    rightAscensionRate: 0.0,
+    declination: -6.163,
+    declinationRate: 0.0,
+    primeMeridian: 302.695,
+    primeMeridianRate: 56.3625225,
+  },
 };
 
 /**
@@ -296,6 +400,23 @@ PlanetaryEphemeris.PLANETS = Object.freeze([
  * @type {object[]}
  */
 PlanetaryEphemeris.DWARF_PLANETS = Object.freeze([PlanetaryEphemeris.PLUTO]);
+
+/**
+ * Everything this module can draw, the Earth included, ordered outward from the Sun.
+ *
+ * @type {object[]}
+ */
+PlanetaryEphemeris.BODIES = Object.freeze([
+  PlanetaryEphemeris.MERCURY,
+  PlanetaryEphemeris.VENUS,
+  PlanetaryEphemeris.EARTH,
+  PlanetaryEphemeris.MARS,
+  PlanetaryEphemeris.JUPITER,
+  PlanetaryEphemeris.SATURN,
+  PlanetaryEphemeris.URANUS,
+  PlanetaryEphemeris.NEPTUNE,
+  PlanetaryEphemeris.PLUTO,
+]);
 
 /**
  * Wraps an angle into the range [-180, 180).
@@ -500,6 +621,53 @@ PlanetaryEphemeris.computeOrbitSamples = function (body, date, count) {
   positions[count] = Cartesian3.clone(positions[0], new Cartesian3());
 
   return positions;
+};
+
+/**
+ * Computes a body's orientation, in the form {@link IauOrientationAxes} takes.
+ *
+ * @param {object} body One of the element tables on this namespace.
+ * @param {JulianDate} date The time at which to evaluate the orientation.
+ * @param {IauOrientationParameters} result The object onto which to store the result.
+ * @returns {IauOrientationParameters} The modified result parameter.
+ */
+PlanetaryEphemeris.computeOrientation = function (body, date, result) {
+  const days = JulianDate.totalDays(date) - J2000_JULIAN_DAY;
+  const orientation = body.orientation;
+  const centuries = days / DAYS_PER_CENTURY;
+
+  let rightAscension =
+    orientation.rightAscension + orientation.rightAscensionRate * centuries;
+  let declination =
+    orientation.declination + orientation.declinationRate * centuries;
+  let primeMeridian =
+    orientation.primeMeridian + orientation.primeMeridianRate * days;
+
+  const libration = orientation.libration;
+  if (defined(libration)) {
+    const argument = CesiumMath.toRadians(
+      libration.argument + libration.argumentRate * centuries,
+    );
+    rightAscension += libration.rightAscension * Math.sin(argument);
+    declination += libration.declination * Math.cos(argument);
+    primeMeridian += libration.primeMeridian * Math.sin(argument);
+  }
+
+  result.rightAscension = CesiumMath.toRadians(rightAscension);
+  result.declination = CesiumMath.toRadians(declination);
+  result.rotation = CesiumMath.toRadians(primeMeridian);
+  return result;
+};
+
+/**
+ * Computes how long a body takes to turn once on its axis. The sign follows the
+ * direction of rotation, so a retrograde body has a negative period.
+ *
+ * @param {object} body One of the element tables on this namespace.
+ * @returns {number} The rotation period, in days.
+ */
+PlanetaryEphemeris.computeRotationPeriod = function (body) {
+  return 360.0 / body.orientation.primeMeridianRate;
 };
 
 /**
