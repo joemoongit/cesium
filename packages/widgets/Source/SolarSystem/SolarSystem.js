@@ -102,7 +102,8 @@ css: { "cesium-solarSystem-visible": dropDownVisible,\
       <input type="checkbox" data-bind="checked: orbiting" />
       Orbit
     </label>
-    <label class="cesium-solarSystem-spin">
+    <label class="cesium-solarSystem-spin"
+           data-bind="style: { visibility: canSpin ? 'inherit' : 'hidden' }">
       <input type="checkbox" data-bind="checked: spinning" />
       Spin
     </label>

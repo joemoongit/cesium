@@ -16,7 +16,7 @@ span.cesium-solarSystem-wrapper {
   position: absolute;
   top: 38px;
   right: 0;
-  width: 478px;
+  width: max-content;
   padding: 6px 8px 8px 8px;
   border: 1px solid #444;
   border-radius: 10px;
@@ -25,7 +25,7 @@ span.cesium-solarSystem-wrapper {
   font-family: sans-serif;
   font-size: 12px;
   transform: scale(0.01);
-  transform-origin: 478px -10px;
+  transform-origin: calc(100% - 16px) -10px;
   transition:
     visibility 0s 0.25s,
     transform 0.25s ease-in;
@@ -78,7 +78,7 @@ span.cesium-solarSystem-wrapper {
 
 .cesium-solarSystem-planet {
   display: grid;
-  grid-template-columns: 12px 62px 52px auto auto 168px auto;
+  grid-template-columns: 12px 88px 52px auto auto 168px auto;
   align-items: center;
   column-gap: 4px;
   padding: 1px 0;
@@ -99,6 +99,9 @@ span.cesium-solarSystem-wrapper {
 
 .cesium-solarSystem-name {
   font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cesium-solarSystem-distance,

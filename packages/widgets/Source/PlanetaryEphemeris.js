@@ -388,6 +388,7 @@ PlanetaryEphemeris.PLANETS = Object.freeze([
   PlanetaryEphemeris.MERCURY,
   PlanetaryEphemeris.VENUS,
   PlanetaryEphemeris.MARS,
+  PlanetaryEphemeris.ASTEROID_BELT,
   PlanetaryEphemeris.JUPITER,
   PlanetaryEphemeris.SATURN,
   PlanetaryEphemeris.URANUS,
@@ -401,6 +402,161 @@ PlanetaryEphemeris.PLANETS = Object.freeze([
  */
 PlanetaryEphemeris.DWARF_PLANETS = Object.freeze([PlanetaryEphemeris.PLUTO]);
 
+const beltPopulation = {
+  count: 1200,
+  minimumSemiMajorAxis: 2.06,
+  maximumSemiMajorAxis: 3.28,
+  // Both spreads are Rayleigh distributed, which is what the catalogued belt looks
+  // like: a mean eccentricity near 0.13 and a mean inclination near ten degrees.
+  eccentricitySpread: 0.105,
+  maximumEccentricity: 0.35,
+  inclinationSpread: 8.0,
+  maximumInclination: 25.0,
+  // Resonances with Jupiter, at 3:1, 5:2, 7:3 and 2:1, which have been swept nearly
+  // empty. Leaving them out is most of what makes a scattering of rocks read as the
+  // asteroid belt rather than as a uniform ring.
+  kirkwoodGaps: [
+    { semiMajorAxis: 2.502, halfWidth: 0.022 },
+    { semiMajorAxis: 2.825, halfWidth: 0.019 },
+    { semiMajorAxis: 2.958, halfWidth: 0.014 },
+    { semiMajorAxis: 3.279, halfWidth: 0.028 },
+  ],
+};
+
+/**
+ * Draws the population of the main belt. Each rock comes back shaped like every other
+ * body here, so it goes through the same Kepler solve and follows its own real orbit.
+ *
+ * <p>The sequence is fixed rather than random, so the same belt comes back every time
+ * and can be checked against the distribution it is meant to have.</p>
+ *
+ * @returns {object[]} The asteroids.
+ *
+ * @private
+ */
+function generateBelt() {
+  const span =
+    beltPopulation.maximumSemiMajorAxis - beltPopulation.minimumSemiMajorAxis;
+
+  // A small linear congruential generator, so the belt is the same on every run.
+  let seed = 20250825;
+  const random = function () {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  const rayleigh = function (spread, maximum) {
+    return Math.min(
+      spread * Math.sqrt(-2.0 * Math.log(1.0 - random())),
+      maximum,
+    );
+  };
+  const inKirkwoodGap = function (semiMajorAxis) {
+    return beltPopulation.kirkwoodGaps.some(function (gap) {
+      return Math.abs(semiMajorAxis - gap.semiMajorAxis) < gap.halfWidth;
+    });
+  };
+
+  const belt = new Array(beltPopulation.count);
+  for (let i = 0; i < belt.length; ++i) {
+    let semiMajorAxis;
+    do {
+      semiMajorAxis = beltPopulation.minimumSemiMajorAxis + random() * span;
+    } while (inKirkwoodGap(semiMajorAxis));
+
+    belt[i] = {
+      name: `Asteroid ${i}`,
+      elements: {
+        a: semiMajorAxis,
+        e: rayleigh(
+          beltPopulation.eccentricitySpread,
+          beltPopulation.maximumEccentricity,
+        ),
+        inclination: rayleigh(
+          beltPopulation.inclinationSpread,
+          beltPopulation.maximumInclination,
+        ),
+        meanLongitude: random() * 360.0,
+        longitudeOfPerihelion: random() * 360.0,
+        longitudeOfNode: random() * 360.0,
+      },
+      rates: {
+        a: 0.0,
+        e: 0.0,
+        inclination: 0.0,
+        // Kepler's third law: a body at a astronomical units takes a^1.5 years.
+        meanLongitude: 36000.0 / Math.pow(semiMajorAxis, 1.5),
+        longitudeOfPerihelion: 0.0,
+        longitudeOfNode: 0.0,
+      },
+      radii: undefined,
+    };
+  }
+  return belt;
+}
+
+const beltMembers = generateBelt();
+
+function beltMean(evaluate) {
+  return (
+    beltMembers.reduce(function (total, asteroid) {
+      return total + evaluate(asteroid);
+    }, 0.0) / beltMembers.length
+  );
+}
+
+/**
+ * The main asteroid belt. Not an ephemeris of real rocks -- there are more than a
+ * million catalogued -- but the population they are drawn from, which is what a belt
+ * looks like, held in <code>members</code>.
+ *
+ * <p>The elements are the averages of that population, so the belt reports and is
+ * driven at the real average of its rocks rather than at some representative orbit's.
+ * The rate is the mean of their angular speeds, which is not the speed implied by the
+ * mean semi-major axis: averaging distances and averaging speeds are different
+ * questions, and the speed is the one that says how fast the belt goes round.</p>
+ *
+ * @type {object}
+ */
+PlanetaryEphemeris.ASTEROID_BELT = {
+  name: "Asteroid belt",
+  elements: {
+    a: beltMean(function (asteroid) {
+      return asteroid.elements.a;
+    }),
+    e: beltMean(function (asteroid) {
+      return asteroid.elements.e;
+    }),
+    inclination: beltMean(function (asteroid) {
+      return asteroid.elements.inclination;
+    }),
+    meanLongitude: 0.0,
+    longitudeOfPerihelion: 0.0,
+    longitudeOfNode: 0.0,
+  },
+  rates: {
+    a: 0.0,
+    e: 0.0,
+    inclination: 0.0,
+    meanLongitude: beltMean(function (asteroid) {
+      return asteroid.rates.meanLongitude;
+    }),
+    longitudeOfPerihelion: 0.0,
+    longitudeOfNode: 0.0,
+  },
+  // Ceres, the largest of them, stands in when the belt needs a size.
+  radii: new Cartesian3(482100.0, 482100.0, 445900.0),
+  orientation: {
+    rightAscension: 291.418,
+    rightAscensionRate: 0.0,
+    declination: 66.764,
+    declinationRate: 0.0,
+    primeMeridian: 170.65,
+    primeMeridianRate: 952.1532,
+  },
+  population: beltPopulation,
+  members: beltMembers,
+};
+
 /**
  * Everything this module can draw, the Earth included, ordered outward from the Sun.
  *
@@ -411,6 +567,7 @@ PlanetaryEphemeris.BODIES = Object.freeze([
   PlanetaryEphemeris.VENUS,
   PlanetaryEphemeris.EARTH,
   PlanetaryEphemeris.MARS,
+  PlanetaryEphemeris.ASTEROID_BELT,
   PlanetaryEphemeris.JUPITER,
   PlanetaryEphemeris.SATURN,
   PlanetaryEphemeris.URANUS,

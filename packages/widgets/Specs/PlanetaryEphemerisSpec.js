@@ -360,6 +360,67 @@ describe("Widgets/PlanetaryEphemeris", function () {
     });
   });
 
+  it("draws an asteroid belt with the spread the real one has", function () {
+    const belt = PlanetaryEphemeris.ASTEROID_BELT.members;
+    const population = PlanetaryEphemeris.ASTEROID_BELT.population;
+    expect(belt.length).toEqual(population.count);
+
+    function mean(property) {
+      return (
+        belt.reduce(function (total, asteroid) {
+          return total + asteroid.elements[property];
+        }, 0.0) / belt.length
+      );
+    }
+
+    // Published means for the catalogued main belt.
+    expect(mean("a")).toEqualEpsilon(2.7, 0.1);
+    expect(mean("e")).toEqualEpsilon(0.13, 0.02);
+    expect(mean("inclination")).toEqualEpsilon(10.0, 1.0);
+
+    belt.forEach(function (asteroid) {
+      const semiMajorAxis = asteroid.elements.a;
+      expect(semiMajorAxis).toBeGreaterThan(population.minimumSemiMajorAxis);
+      expect(semiMajorAxis).toBeLessThan(population.maximumSemiMajorAxis);
+      expect(asteroid.elements.e).toBeLessThan(population.maximumEccentricity);
+
+      // The Kirkwood gaps are swept empty by resonance with Jupiter, and leaving them
+      // out is most of what makes this read as the asteroid belt.
+      population.kirkwoodGaps.forEach(function (gap) {
+        expect(Math.abs(semiMajorAxis - gap.semiMajorAxis)).toBeGreaterThan(
+          gap.halfWidth,
+        );
+      });
+
+      // Kepler's third law, which is what carries each rock round its own orbit.
+      expect(
+        PlanetaryEphemeris.computeOrbitalPeriod(asteroid) / 365.25,
+      ).toEqualEpsilon(Math.pow(semiMajorAxis, 1.5), 0.01);
+    });
+
+    // The belt's own row is driven at the average of its rocks rather than at some
+    // representative orbit: the mean angular speed, which is not the speed implied by
+    // the mean semi-major axis.
+    const elements = PlanetaryEphemeris.ASTEROID_BELT.elements;
+    expect(elements.a).toEqualEpsilon(mean("a"), CesiumMath.EPSILON10);
+    expect(elements.e).toEqualEpsilon(mean("e"), CesiumMath.EPSILON10);
+    expect(elements.inclination).toEqualEpsilon(
+      mean("inclination"),
+      CesiumMath.EPSILON10,
+    );
+    expect(PlanetaryEphemeris.ASTEROID_BELT.rates.meanLongitude).toEqualEpsilon(
+      belt.reduce(function (total, asteroid) {
+        return total + asteroid.rates.meanLongitude;
+      }, 0.0) / belt.length,
+      CesiumMath.EPSILON10,
+    );
+    expect(
+      PlanetaryEphemeris.computeOrbitalPeriod(
+        PlanetaryEphemeris.ASTEROID_BELT,
+      ) / 365.25,
+    ).toEqualEpsilon(4.18, 0.05);
+  });
+
   it("computes orbital periods", function () {
     expect(
       PlanetaryEphemeris.computeOrbitalPeriod(PlanetaryEphemeris.MERCURY),

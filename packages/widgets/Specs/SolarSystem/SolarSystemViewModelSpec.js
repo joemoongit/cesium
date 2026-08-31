@@ -72,9 +72,10 @@ describe(
       expect(viewModel.clock).toBe(clock);
       expect(viewModel.dropDownVisible).toEqual(false);
       expect(scene.preUpdate.numberOfListeners).toEqual(1);
-      // The point, label and orbit collections, plus one body per row -- but nothing
-      // for the Earth, which Cesium draws itself.
-      expect(scene.primitives.length).toEqual(primitiveCount + 11);
+      // The point, label, orbit and asteroid collections, plus one body per row --
+      // but nothing for the Earth, which Cesium draws itself, and nothing for the
+      // belt, which draws a cloud instead.
+      expect(scene.primitives.length).toEqual(primitiveCount + 12);
 
       viewModel.destroy();
       expect(viewModel.isDestroyed()).toEqual(true);
@@ -106,13 +107,14 @@ describe(
         "Venus",
         "Earth",
         "Mars",
+        "Asteroid belt",
         "Jupiter",
         "Saturn",
         "Uranus",
         "Neptune",
         "Pluto",
       ]);
-      expect(viewModel.planets[8].description).toContain("a dwarf planet");
+      expect(viewModel.planets[9].description).toContain("a dwarf planet");
       viewModel.planets.forEach(function (planet) {
         expect(planet.orbiting).toEqual(false);
         expect(planet.colorCss).toMatch(/^#[0-9a-f]{6}$/);
@@ -153,7 +155,7 @@ describe(
 
       // Which means the ceilings differ by orders of magnitude between bodies.
       const mercury = viewModel.planets[0];
-      const pluto = viewModel.planets[8];
+      const pluto = viewModel.planets[9];
       mercury.orbitSpeedSliderValue = viewModel.speedSliderMaximum;
       pluto.orbitSpeedSliderValue = viewModel.speedSliderMaximum;
       expect(pluto.orbitSpeed / mercury.orbitSpeed).toBeGreaterThan(100.0);
@@ -179,7 +181,7 @@ describe(
 
     it("keeps the orbit and spin speeds apart", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[3];
+      const planet = viewModel.planets[5];
       const time = clock.currentTime;
 
       planet.orbitSpeedSliderValue = 0;
@@ -252,7 +254,7 @@ describe(
       // The two group toggles are independent.
       expect(viewModel.allOrbiting).toEqual(false);
 
-      viewModel.planets[6].spinning = false;
+      viewModel.planets[7].spinning = false;
       expect(viewModel.allSpinning).toEqual(false);
 
       viewModel.allSpinning = false;
@@ -518,7 +520,7 @@ describe(
 
     it("turns a planet on its axis without moving it along its orbit", function () {
       const viewModel = new SolarSystemViewModel(scene, clock);
-      const planet = viewModel.planets[3];
+      const planet = viewModel.planets[5];
       const time = clock.currentTime;
 
       viewModel._update(time);
@@ -678,6 +680,62 @@ describe(
       );
 
       earth.spinning = false;
+      viewModel.destroy();
+    });
+
+    it("scatters an asteroid belt between Mars and Jupiter", function () {
+      const viewModel = new SolarSystemViewModel(scene, clock);
+      const belt = viewModel.planets[4];
+      const time = clock.currentTime;
+      expect(belt.name).toEqual("Asteroid belt");
+
+      // A population, not a body: a cloud of rocks rather than an ellipsoid, and
+      // nothing to spin, since they each turn on their own.
+      expect(belt._bodyPrimitive).toBeUndefined();
+      expect(belt.canSpin).toEqual(false);
+      expect(viewModel.planets[5].canSpin).toEqual(true);
+      expect(viewModel._beltPoints.length).toEqual(
+        PlanetaryEphemeris.ASTEROID_BELT.members.length,
+      );
+
+      // The row goes round at the average of its rocks' speeds, while each rock keeps
+      // to its own orbit: the inner ones really do outrun the outer ones.
+      expect(belt.description).toContain("averages one turn");
+      const members = PlanetaryEphemeris.ASTEROID_BELT.members;
+      const inner = members.reduce(function (slowest, asteroid) {
+        return asteroid.elements.a < slowest.elements.a ? asteroid : slowest;
+      });
+      const outer = members.reduce(function (fastest, asteroid) {
+        return asteroid.elements.a > fastest.elements.a ? asteroid : fastest;
+      });
+      expect(PlanetaryEphemeris.computeOrbitalPeriod(inner)).toBeLessThan(
+        PlanetaryEphemeris.computeOrbitalPeriod(outer),
+      );
+
+      // The rocks are held relative to the Sun, in the same frame as the orbit paths,
+      // so that turning the sky costs nothing.
+      expect(viewModel._beltPoints.modelMatrix).toBe(
+        viewModel._orbits.modelMatrix,
+      );
+
+      viewModel._update(time);
+      for (let i = 0; i < viewModel._beltPoints.length; ++i) {
+        const distance =
+          Cartesian3.magnitude(viewModel._beltPoints.get(i).position) /
+          PlanetaryEphemeris.AU_METERS;
+        expect(distance).toBeGreaterThan(1.5);
+        expect(distance).toBeLessThan(4.5);
+      }
+
+      // It goes round on its own slider, like everything else.
+      const before = Cartesian3.clone(viewModel._beltPoints.get(0).position);
+      belt._offsetSeconds = 365.25 * 86400.0;
+      viewModel._update(time);
+      expect(
+        Cartesian3.distance(viewModel._beltPoints.get(0).position, before) /
+          PlanetaryEphemeris.AU_METERS,
+      ).toBeGreaterThan(0.5);
+
       viewModel.destroy();
     });
 

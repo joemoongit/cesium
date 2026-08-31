@@ -82,6 +82,8 @@ const scratchTrackingOffset = new Cartesian3();
 const scratchInertialTransform = new Matrix4();
 const scratchInertialRotation = new Matrix3();
 const scratchInertialOffset = new Cartesian3();
+const scratchBeltDate = new JulianDate();
+const scratchBeltPosition = new Cartesian3();
 const scratchEarthDate = new JulianDate();
 const scratchEarthMoved = new Cartesian3();
 const scratchEarthNow = new Cartesian3();
@@ -101,7 +103,13 @@ const PLANET_STYLES = {
   Uranus: "#a7e0e8",
   Neptune: "#4b70dd",
   Pluto: "#c8a68a",
+  "Asteroid belt": "#9a9088",
 };
+
+// Recomputing every rock costs about half a millisecond, and only happens when the
+// belt has been carried somewhere new: the rotation of the sky is carried by the
+// collection's model matrix.
+const BELT_UPDATE_SECONDS = 21600.0;
 
 const ORBIT_ALPHA = 0.35;
 
@@ -421,8 +429,11 @@ function createPlanetViewModel(owner, body) {
   );
   const color = Color.fromCssColorString(PLANET_STYLES[body.name]);
   // Cesium already draws the Earth: it is the globe, and it is where the camera is.
-  // So the Earth gets a row and an orbit but nothing of its own in the scene.
+  // So the Earth gets a row and an orbit but nothing of its own in the scene. The
+  // asteroid belt has a row too, but it is a population rather than a body: it draws
+  // a cloud of its own instead of an ellipsoid, and there is nothing to spin.
   const isEarth = body === PlanetaryEphemeris.EARTH;
+  const isBelt = body === PlanetaryEphemeris.ASTEROID_BELT;
   const markerDistance = body.radii.x * MARKER_MINIMUM_DISTANCE_SCALE;
 
   const planet = {
@@ -447,7 +458,13 @@ function createPlanetViewModel(owner, body) {
       PlanetaryEphemeris.DWARF_PLANETS.indexOf(body) !== -1
         ? ", a dwarf planet,"
         : ""
-    } orbits the Sun once every ${describeOrbitalPeriod(body)} and turns on its axis once every ${describeRotationPeriod(body)}.${
+    }${isBelt ? " averages one turn around the Sun every " : " orbits the Sun once every "}${describeOrbitalPeriod(
+      body,
+    )}${
+      isBelt
+        ? ", the mean of its rocks' own speeds, though each of them keeps to its own orbit."
+        : ` and turns on its axis once every ${describeRotationPeriod(body)}.`
+    }${
       body === PlanetaryEphemeris.EARTH
         ? " Everything here is drawn from the Earth, so sending it round the Sun carries the camera with it and the rest of the sky shifts to match, and its distance is given to the Sun rather than to itself. Turning it runs the clock, since the globe's rotation is what the clock measures."
         : ""
@@ -502,6 +519,14 @@ function createPlanetViewModel(owner, body) {
      * @default false
      */
     spinning: false,
+
+    /**
+     * Whether this one can be turned on its axis at all. The asteroid belt cannot:
+     * it is a scattering of rocks, and they each turn on their own.
+     * @type {boolean}
+     * @default true
+     */
+    canSpin: !isBelt,
 
     /**
      * Whether the camera is locked onto the planet, following it wherever it goes.
@@ -566,7 +591,9 @@ function createPlanetViewModel(owner, body) {
 
   // Nothing is drawn for the Earth: Cesium's globe is the Earth, and the camera is
   // standing on it. Everything else in the loop below skips it.
-  planet._drawn = !isEarth;
+  planet._drawn = !isEarth && !isBelt;
+  // Only the Earth carries the camera with it when it moves; it is the origin.
+  planet._movesObserver = isEarth;
   if (planet._drawn) {
     planet._point = owner._points.add({
       color: color,
@@ -671,6 +698,7 @@ function SolarSystemViewModel(scene, clock) {
   this._points = scene.primitives.add(new PointPrimitiveCollection());
   this._labels = scene.primitives.add(new LabelCollection({ scene: scene }));
   this._orbits = scene.primitives.add(new PolylineCollection());
+  this._beltPoints = scene.primitives.add(new PointPrimitiveCollection());
 
   const that = this;
 
@@ -710,8 +738,23 @@ function SolarSystemViewModel(scene, clock) {
 
   // The Earth is handled apart from the others in the update: it is the origin.
   this._earth = this.planets.filter(function (planet) {
-    return !planet._drawn;
+    return planet._movesObserver;
   })[0];
+
+  // The belt's rocks are held in the same frame as the orbit paths, relative to the
+  // Sun, so the one model matrix carries both and turning the sky costs nothing.
+  this._belt = this.planets.filter(function (planet) {
+    return planet._body === PlanetaryEphemeris.ASTEROID_BELT;
+  })[0];
+  this._beltBodies = PlanetaryEphemeris.ASTEROID_BELT.members;
+  this._beltTime = undefined;
+  this._beltPoints.modelMatrix = this._orbits.modelMatrix;
+  const beltColor = Color.fromCssColorString(
+    PLANET_STYLES[PlanetaryEphemeris.ASTEROID_BELT.name],
+  );
+  this._beltBodies.forEach(function () {
+    that._beltPoints.add({ color: beltColor, pixelSize: 1.5 });
+  });
 
   /**
    * Gets or sets whether every planet is orbiting.  Setting it starts or stops all of
@@ -1123,6 +1166,7 @@ SolarSystemViewModel.prototype._update = function (time) {
   const visible = scene.mode === SceneMode.SCENE3D;
   this._points.show = visible;
   this._labels.show = visible;
+  this._beltPoints.show = visible;
   this._orbits.show = visible && this.showOrbits;
 
   const timestamp = getTimestamp();
@@ -1217,7 +1261,7 @@ SolarSystemViewModel.prototype._update = function (time) {
   for (let i = 0; i < planets.length; ++i) {
     const planet = planets[i];
 
-    if (planet.orbiting && planet._drawn) {
+    if (planet.orbiting && !planet._movesObserver) {
       planet._offsetSeconds += elapsedSeconds * planet.orbitSpeed;
       moving = true;
     }
@@ -1225,7 +1269,7 @@ SolarSystemViewModel.prototype._update = function (time) {
     // The offset is only added to, never cleared, so a planet that has been stopped
     // stays where it was carried to instead of jumping back to where it really is.
     // The Earth is the origin by definition: it is where the camera is standing.
-    const position = planet._drawn
+    const position = !planet._movesObserver
       ? computeFixedPosition(
           planet._body,
           time,
@@ -1275,9 +1319,34 @@ SolarSystemViewModel.prototype._update = function (time) {
       // The rotation into the fixed frame does not change the distance. The Earth's
       // distance to itself is no use, so it is given the distance to the Sun.
       planet.distanceText = `${(
-        Cartesian3.magnitude(planet._drawn ? position : sunInertial) /
+        Cartesian3.magnitude(planet._movesObserver ? sunInertial : position) /
         PlanetaryEphemeris.AU_METERS
       ).toFixed(2)} AU`;
+    }
+  }
+
+  // The rocks only need moving when the belt has been carried somewhere new. The sky
+  // turning underneath them is the model matrix's job, and costs nothing.
+  const belt = this._belt;
+  const beltTime = JulianDate.addSeconds(
+    time,
+    belt._offsetSeconds,
+    scratchBeltDate,
+  );
+  if (
+    !defined(this._beltTime) ||
+    Math.abs(JulianDate.secondsDifference(beltTime, this._beltTime)) >
+      BELT_UPDATE_SECONDS
+  ) {
+    this._beltTime = JulianDate.clone(beltTime, this._beltTime);
+    const bodies = this._beltBodies;
+    for (let i = 0; i < bodies.length; ++i) {
+      this._beltPoints.get(i).position =
+        PlanetaryEphemeris.computeHeliocentricPosition(
+          bodies[i],
+          beltTime,
+          scratchBeltPosition,
+        );
     }
   }
 
@@ -1317,6 +1386,7 @@ SolarSystemViewModel.prototype.destroy = function () {
     primitives.remove(this._points);
     primitives.remove(this._labels);
     primitives.remove(this._orbits);
+    primitives.remove(this._beltPoints);
     this.planets.forEach(function (planet) {
       if (planet._drawn) {
         primitives.remove(planet._bodyPrimitive);

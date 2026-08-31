@@ -35,7 +35,7 @@ describe(
 
       const widget = new SolarSystem("testContainer", scene, clock);
       expect(widget.container.id).toBe(container.id);
-      expect(widget.viewModel.planets.length).toEqual(9);
+      expect(widget.viewModel.planets.length).toEqual(10);
       expect(widget.isDestroyed()).toEqual(false);
 
       widget.destroy();
@@ -52,11 +52,12 @@ describe(
       const rows = container.getElementsByClassName(
         "cesium-solarSystem-planet",
       );
-      // Every planet, the Earth included, and Pluto.
-      expect(rows.length).toEqual(9);
+      // Every planet, the Earth included, the asteroid belt and Pluto.
+      expect(rows.length).toEqual(10);
       expect(rows[0].textContent).toContain("Mercury");
       expect(rows[2].textContent).toContain("Earth");
-      expect(rows[8].textContent).toContain("Pluto");
+      expect(rows[9].textContent).toContain("Pluto");
+      expect(rows[4].textContent).toContain("Asteroid belt");
 
       // The Earth has the same controls as the rest of them.
       expect(
@@ -69,6 +70,14 @@ describe(
       expect(
         rows[0].getElementsByClassName("cesium-solarSystem-spin").length,
       ).toEqual(1);
+
+      // The belt cannot spin, but its cell keeps its place in the row: hiding it
+      // outright would collapse the column and shift the rest of the row along.
+      const beltSpin = rows[4].getElementsByClassName(
+        "cesium-solarSystem-spin",
+      )[0];
+      expect(beltSpin.style.visibility).toEqual("hidden");
+      expect(beltSpin.style.display).not.toEqual("none");
       // One slider for the orbit and one for the spin, hidden until toggled on.
       const sliders = rows[0].getElementsByClassName(
         "cesium-solarSystem-speed",
